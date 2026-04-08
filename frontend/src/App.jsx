@@ -1,6 +1,7 @@
 import React from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
+import TrackJob from './components/TrackJob';
 function App() {
 
 
@@ -8,6 +9,7 @@ function App() {
     <>
     <Navbar />
     <Hero />
+    <TrackJob />
     
     </>
   )

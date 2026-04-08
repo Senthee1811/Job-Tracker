@@ -33,6 +33,10 @@ const applicationSchema = new mongoose.Schema({
         required: true,
         enum: ["applied", "offered", "rejected", "interviewed"],
         default: "applied"
+    },
+    company:{
+        type: String,
+        required: true
     }
 }, {
     timestamps: true

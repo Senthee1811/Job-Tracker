@@ -16,7 +16,10 @@ export const authMiddleware = async(req, res, next) => {
         if(!decoded){
             return res.status(401).json({ message: "Invalid Token! "});
         }
-        req.user = decoded;
+        req.user = {
+            userId: decoded.id
+        }
+       
         next();
         
     } catch (error) {

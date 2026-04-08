@@ -3,7 +3,7 @@ import { User } from "../models/User.js";
 
 
 export const createApplication = async (req, res) => {
-    const { title, requirements, mode, salary, location, status } = req.body; 
+    const { title, requirements, mode, salary, location, status, company } = req.body; 
     const userId = req.user.userId; //From Middleware
 
     if(!title || !requirements || !mode || !salary || !location || !status){
@@ -12,11 +12,12 @@ export const createApplication = async (req, res) => {
 
     try {
         //Create Application
-        const application = await Application.create({ title, requirements, mode, salary, location, userId, status });  
+        const application = await Application.create({ title, requirements, mode, salary, location, userId, status, company });  
 
         if(!application){
-            return res.status(400).json({ message: "Cannot create an Application"});
+            return res.status(400).json({ message: "Cannot create an Application"});    
         } 
+
 
         //Link to User Application 
         await User.findByIdAndUpdate(userId, { $push: { applications: application._id} });
