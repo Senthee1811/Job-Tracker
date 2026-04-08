@@ -3,7 +3,7 @@ import React from 'react'
 const JobTable = () => {
     const application_dummy = [] 
   return (
-    <div className='bg-lime-300 max-w-5xl'>
+    <div className='bg-lime-300 max-w-5xl flex flex-col items-center justify-center'>
         <table>
             <thead>
                 <tr>
