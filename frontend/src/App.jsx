@@ -3,6 +3,7 @@ import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import TrackJob from './components/TrackJob';
 import DescriptionBox from './components/DescriptionBox';
+import Footer from './components/Footer';
 function App() {
 
 
@@ -12,6 +13,7 @@ function App() {
     <Hero />
     <DescriptionBox />
     <TrackJob />
+    <Footer />
     
     </>
   )
