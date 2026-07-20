@@ -3,16 +3,41 @@ import { User } from "../models/User.js";
 
 
 export const createApplication = async (req, res) => {
-    const { title, requirements, mode, salary, location, status, company } = req.body; 
+    const { 
+        title, 
+        requirements = "No requirements specified", 
+        mode = "remote", 
+        salary = 0, 
+        location = "", 
+        status = "applied", 
+        company,
+        category = "",
+        opportunity = "",
+        inTouchPerson = "",
+        link = ""
+    } = req.body; 
     const userId = req.user.userId; //From Middleware
 
-    if(!title || !requirements || !mode || !salary || !location || !status){
-        return res.status(400).json({ message: "All fields are required "});
+    if(!title || !company || !status){
+        return res.status(400).json({ message: "Title, company, and status are required "});
     }
 
     try {
         //Create Application
-        const application = await Application.create({ title, requirements, mode, salary, location, userId, status, company });  
+        const application = await Application.create({ 
+            title, 
+            requirements, 
+            mode, 
+            salary, 
+            location, 
+            userId, 
+            status, 
+            company,
+            category,
+            opportunity,
+            inTouchPerson,
+            link
+        });  
 
         if(!application){
             return res.status(400).json({ message: "Cannot create an Application"});    
@@ -33,10 +58,10 @@ export const createApplication = async (req, res) => {
 
 export const getAllApplications = async (req,res) => {
     const userId = req.user.userId;
-    const MAX_APPLICATIONS = 10;
+    const MAX_APPLICATIONS = 200;
 
     try {
-        const applications = await Application.find({ userId: userId }).limit(MAX_APPLICATIONS); 
+        const applications = await Application.find({ userId: userId }).sort({ createdAt: -1 }).limit(MAX_APPLICATIONS); 
 
         if(applications.length === 0){
             return res.status(404).json({ message: "No Applications Found!! "});

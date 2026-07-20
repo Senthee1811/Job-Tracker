@@ -26,7 +26,14 @@ const userSchema = new mongoose.Schema({
     applications: [{
         type: mongoose.Schema.Types.ObjectId, 
         ref: "Application"
-    }]
+    }],
+    skills: [{
+        type: String
+    }],
+    resumeText: {
+        type: String,
+        default: ""
+    }
 },{ timestamps: true }); 
 
 export const User = mongoose.model("User", userSchema) || mongoose.models.User; 

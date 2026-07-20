@@ -27,7 +27,7 @@ export const registerUser = async (req, res) => {
             email
         }); 
 
-        const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+        const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
 
         if(!token){
             return res.status(400).json({ message: "Cannot Generate Token " });
@@ -86,4 +86,47 @@ export const getAllUsers = async(req,res) => {
         return res.status(500).json({ message: "Cannot get all users "});
     }
 }
+
+export const getUserProfile = async (req, res) => {
+    const userId = req.user.userId;
+    try {
+        const user = await User.findById(userId).select("-password");
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        return res.status(200).json({ message: "Profile fetched successfully", user });
+    } catch (error) {
+        console.error("Error fetching profile", error);
+        return res.status(500).json({ message: "Cannot fetch profile" });
+    }
+};
+
+export const updateUserProfile = async (req, res) => {
+    const userId = req.user.userId;
+    const { firstname, lastname, email, age, skills, resumeText } = req.body;
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        if (firstname !== undefined) user.firstname = firstname;
+        if (lastname !== undefined) user.lastname = lastname;
+        if (email !== undefined) {
+            const emailExist = await User.findOne({ email });
+            if (emailExist && emailExist._id.toString() !== userId) {
+                return res.status(400).json({ message: "Email already taken" });
+            }
+            user.email = email;
+        }
+        if (age !== undefined) user.age = age;
+        if (skills !== undefined) user.skills = skills;
+        if (resumeText !== undefined) user.resumeText = resumeText;
+
+        await user.save();
+        return res.status(200).json({ message: "Profile updated successfully", user });
+    } catch (error) {
+        console.error("Error updating profile", error);
+        return res.status(500).json({ message: "Cannot update profile" });
+    }
+};
 

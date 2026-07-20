@@ -37,6 +37,26 @@ const applicationSchema = new mongoose.Schema({
     company:{
         type: String,
         required: true
+    },
+    category:{
+        type: String,
+        required: false,
+        default: ""
+    },
+    opportunity:{
+        type: String,
+        required: false,
+        default: ""
+    },
+    inTouchPerson:{
+        type: String,
+        required: false,
+        default: ""
+    },
+    link:{
+        type: String,
+        required: false,
+        default: ""
     }
 }, {
     timestamps: true
