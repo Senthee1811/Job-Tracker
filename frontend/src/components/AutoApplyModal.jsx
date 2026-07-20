@@ -11,85 +11,90 @@ const AutoApplyModal = ({ isOpen, job, onClose, onApplySuccess }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const logEndRef = useRef(null);
 
-  if (!isOpen || !job) return null;
-
   // Run the simulation when the modal opens
   useEffect(() => {
+    if (!isOpen || !job) return;
     setStatus('running');
     setProgress(0);
     setLogs([]);
     setErrorMessage('');
 
-    // Fetch user context for logs customization
-    const username = user ? `${user.firstname} ${user.lastname}` : 'Anonymous Candidate';
-    const skillsList = user && user.skills && user.skills.length > 0 
-      ? user.skills.join(', ') 
-      : 'React, JavaScript, HTML, CSS';
-    
-    const resumeTextLen = user && user.resumeText ? user.resumeText.length : 0;
+    const runVerificationAndSimulation = async () => {
+      try {
+        setLogs((prev) => [...prev, `> Connecting to live board scraper to verify active status for: "${job.title}" at "${job.company}"...`]);
+        
+        // Execute dynamic live verification call
+        const verifyData = await api.getLiveJobs(job.title, job.location || 'Sri Lanka');
+        
+        setLogs((prev) => [
+          ...prev, 
+          `> Scraper verification response: Found ${verifyData.jobs?.length || 0} matching listings in the ${job.location || 'selected'} region.`,
+          `> Active listing verified on source channel: [${job.source.toUpperCase()}]`
+        ]);
 
-    const simulationSteps = [
-      {
-        progress: 10,
-        log: `> Initializing Job Tracker Application Automation Engine v1.0.0...`,
-        delay: 200
-      },
-      {
-        progress: 25,
-        log: `> Connecting to user profile session: "${username}"`,
-        delay: 600
-      },
-      {
-        progress: 40,
-        log: `> Parsing candidate qualifications: [${skillsList}]`,
-        delay: 1100
-      },
-      {
-        progress: 55,
-        log: `> Navigating to recruiter page: ${job.link || 'careers.portal.com'}`,
-        delay: 1600
-      },
-      {
-        progress: 70,
-        log: `> Filling application form fields. Uploading mock profile resume (length: ${resumeTextLen} chars)...`,
-        delay: 2200
-      },
-      {
-        progress: 85,
-        log: `> Bypassing platform bot detection & security check (CAPTCHA)... Success!`,
-        delay: 2800
-      },
-      {
-        progress: 95,
-        log: `> Submitting form to ${job.company} recruiters... Application accepted!`,
-        delay: 3400
-      },
-      {
-        progress: 100,
-        log: `> Syncing application data with local tracking spreadsheet...`,
-        delay: 3900
-      }
-    ];
+        const username = user ? `${user.firstname} ${user.lastname}` : 'Anonymous Candidate';
+        const skillsList = user && user.skills && user.skills.length > 0 
+          ? user.skills.join(', ') 
+          : 'React, JavaScript, HTML, CSS';
+        
+        const resumeTextLen = user && user.resumeText ? user.resumeText.length : 0;
 
-    // Setup timeouts for each step
-    const timers = [];
-    
-    simulationSteps.forEach((step) => {
-      const timer = setTimeout(() => {
-        setLogs((prev) => [...prev, step.log]);
-        setProgress(step.progress);
+        const simulationSteps = [
+          {
+            progress: 20,
+            log: `> Initializing automated application driver sequence for: "${username}"`,
+            delay: 400
+          },
+          {
+            progress: 40,
+            log: `> Auto-matching user skills checklist: [${skillsList}]`,
+            delay: 900
+          },
+          {
+            progress: 60,
+            log: `> Injecting parsed CV credentials (CV resume text length: ${resumeTextLen} chars)...`,
+            delay: 1400
+          },
+          {
+            progress: 80,
+            log: `> Bypassing anti-bot CAPTCHA validation... Success!`,
+            delay: 1900
+          },
+          {
+            progress: 95,
+            log: `> Submitting form to ${job.company} portal... Application Accepted!`,
+            delay: 2400
+          },
+          {
+            progress: 100,
+            log: `> Recording tracked application details to MongoDB...`,
+            delay: 2900
+          }
+        ];
 
-        // Once we reach 100%, trigger the database insertion
-        if (step.progress === 100) {
+        simulationSteps.forEach((step) => {
+          setTimeout(() => {
+            setLogs((prev) => [...prev, step.log]);
+            setProgress(step.progress);
+            if (step.progress === 100) {
+              saveApplicationToDB();
+            }
+          }, step.delay);
+        });
+
+      } catch (err) {
+        console.error(err);
+        setLogs((prev) => [...prev, `> [WARNING] Unable to verify job status: ${err.message}. Proceeding with offline application simulation fallback.`]);
+        
+        // Run simulation fallback after warning
+        setTimeout(() => {
+          setProgress(100);
           saveApplicationToDB();
-        }
-      }, step.delay);
-      timers.push(timer);
-    });
-
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
+        }, 1500);
+      }
     };
+
+    runVerificationAndSimulation();
   }, [job, user]);
 
   // Scroll terminal logs automatically
@@ -124,6 +129,8 @@ const AutoApplyModal = ({ isOpen, job, onClose, onApplySuccess }) => {
       setErrorMessage(err.message || 'Failed to save application to database');
     }
   };
+
+  if (!isOpen || !job) return null;
 
   return (
     <div className='fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none'>

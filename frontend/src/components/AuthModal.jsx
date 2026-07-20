@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { IoCloseOutline } from 'react-icons/io5';
+import { useNavigate } from 'react-router-dom';
 
 const AuthModal = ({ isOpen, onClose }) => {
   const { login, register } = useAuth();
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,6 +40,7 @@ const AuthModal = ({ isOpen, onClose }) => {
         });
       }
       onClose();
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Authentication failed');
     } finally {

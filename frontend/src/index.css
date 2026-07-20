@@ -5,3 +5,42 @@
   --font-playwrite: "Playwrite IE", cursive;
   --font-sans: "Inter", sans-serif;
 }
+
+/* Custom auto-hiding scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+}
+
+html:hover::-webkit-scrollbar-thumb,
+body:hover::-webkit-scrollbar-thumb,
+main:hover::-webkit-scrollbar-thumb,
+aside:hover::-webkit-scrollbar-thumb,
+div:hover::-webkit-scrollbar-thumb {
+  background: #a3e635;
+  border: 2px solid #ffffff;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #84cc16 !important;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s;
+}
+
+html:hover {
+  scrollbar-color: #a3e635 transparent;
+}

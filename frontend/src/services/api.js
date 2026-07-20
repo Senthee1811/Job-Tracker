@@ -56,6 +56,24 @@ export const api = {
     return handleResponse(res);
   },
 
+  uploadCV: async (file) => {
+    const formData = new FormData();
+    formData.append("cv", file);
+    
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    
+    const res = await fetch(`${BASE_URL}/users/upload-cv`, {
+      method: "POST",
+      headers: headers,
+      body: formData,
+    });
+    return handleResponse(res);
+  },
+
   // Applications
   getApplications: async () => {
     const res = await fetch(`${BASE_URL}/applications/all`, {
@@ -86,6 +104,16 @@ export const api = {
   deleteApplication: async (id) => {
     const res = await fetch(`${BASE_URL}/applications/delete/${id}`, {
       method: "DELETE",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  getLiveJobs: async (query, region) => {
+    const q = encodeURIComponent(query || 'React');
+    const r = encodeURIComponent(region || 'Sri Lanka');
+    const res = await fetch(`${BASE_URL}/jobs/search?query=${q}&region=${r}`, {
+      method: "GET",
       headers: getHeaders(),
     });
     return handleResponse(res);

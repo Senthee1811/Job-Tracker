@@ -33,6 +33,14 @@ const userSchema = new mongoose.Schema({
     resumeText: {
         type: String,
         default: ""
+    },
+    cvPath: {
+        type: String,
+        default: ""
+    },
+    cvName: {
+        type: String,
+        default: ""
     }
 },{ timestamps: true }); 
 
