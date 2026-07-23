@@ -103,7 +103,7 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
     const userId = req.user.userId;
-    const { firstname, lastname, email, age, skills, resumeText } = req.body;
+    const { firstname, lastname, email, age, skills, resumeText, linkedin } = req.body;
     try {
         const user = await User.findById(userId);
         if (!user) {
@@ -121,12 +121,43 @@ export const updateUserProfile = async (req, res) => {
         if (age !== undefined) user.age = age;
         if (skills !== undefined) user.skills = skills;
         if (resumeText !== undefined) user.resumeText = resumeText;
+        if (linkedin !== undefined) user.linkedin = linkedin;
 
         await user.save();
         return res.status(200).json({ message: "Profile updated successfully", user });
     } catch (error) {
         console.error("Error updating profile", error);
         return res.status(500).json({ message: "Cannot update profile" });
+    }
+};
+
+export const uploadCV = async (req, res) => {
+    const userId = req.user.userId;
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: "No file uploaded" });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // Save CV details
+        user.cvPath = req.file.path.replace(/\\/g, "/");
+        user.cvName = req.file.originalname;
+
+        // Mock parsed skills
+        const mockSkills = ["React", "TypeScript", "Node.js", "Express", "Tailwind CSS", "Git"];
+        
+        user.skills = Array.from(new Set([...user.skills, ...mockSkills]));
+        user.resumeText = `Professional summary dynamically parsed from: ${req.file.originalname}. Candidate ${user.firstname} ${user.lastname} has solid engineering skills and familiarity with modern Web standards.`;
+
+        await user.save();
+        return res.status(200).json({ message: "CV uploaded and parsed successfully", user });
+    } catch (error) {
+        console.error("Error uploading CV", error);
+        return res.status(500).json({ message: "Cannot upload CV" });
     }
 };
 

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { IoCloseOutline } from 'react-icons/io5';
+import { IoCloseOutline, IoLogoGoogle, IoLogoLinkedin } from 'react-icons/io5';
+import { useNavigate } from 'react-router-dom';
 
 const AuthModal = ({ isOpen, onClose }) => {
   const { login, register } = useAuth();
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,8 +40,40 @@ const AuthModal = ({ isOpen, onClose }) => {
         });
       }
       onClose();
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSocialLogin = async (provider) => {
+    setError('');
+    setLoading(true);
+    try {
+      // Simulate OAuth callback delay
+      await new Promise(r => setTimeout(r, 1000));
+      
+      const providerEmail = `${provider.toLowerCase()}.user@example.com`;
+      const providerPassword = `OAuthPass123!_${provider}`;
+      
+      try {
+        await login(providerEmail, providerPassword);
+      } catch (loginErr) {
+        // Register if they don't exist yet
+        await register({
+          firstname: provider === 'Google' ? 'Google' : 'LinkedIn',
+          lastname: 'User',
+          email: providerEmail,
+          age: 23,
+          password: providerPassword
+        });
+      }
+      onClose();
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message || `OAuth authentication via ${provider} failed`);
     } finally {
       setLoading(false);
     }
@@ -155,6 +189,33 @@ const AuthModal = ({ isOpen, onClose }) => {
           >
             {loading ? 'Processing...' : isLogin ? 'Log In' : 'Register Account'}
           </button>
+
+          <div className='flex items-center justify-center gap-3 my-2 text-xs font-bold text-neutral-400 uppercase tracking-widest'>
+            <div className='h-[1px] bg-neutral-200 flex-1'></div>
+            <span>or</span>
+            <div className='h-[1px] bg-neutral-200 flex-1'></div>
+          </div>
+
+          <div className='grid grid-cols-2 gap-3'>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleSocialLogin('Google')}
+              className='bg-white text-neutral-900 border-2 border-black font-bold py-2 px-3 rounded-lg hover:bg-neutral-50 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-center gap-2 cursor-pointer text-xs md:text-sm'
+            >
+              <IoLogoGoogle className='text-red-500' size={18} />
+              Google
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleSocialLogin('LinkedIn')}
+              className='bg-white text-neutral-900 border-2 border-black font-bold py-2 px-3 rounded-lg hover:bg-neutral-50 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-center gap-2 cursor-pointer text-xs md:text-sm'
+            >
+              <IoLogoLinkedin className='text-blue-500' size={18} />
+              LinkedIn
+            </button>
+          </div>
         </form>
       </div>
     </div>

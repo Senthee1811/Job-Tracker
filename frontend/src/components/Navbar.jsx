@@ -1,53 +1,77 @@
 import React from 'react';
-import logo from '../assets/logo.svg';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
 
-const Navbar = ({ activeTab, setActiveTab, onOpenAuth }) => {
+const Navbar = ({ onOpenAuth }) => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const navItems = [
-    { id: 'home', label: 'Home' },
-    { id: 'tracker', label: 'Tracker' },
-    { id: 'explore', label: 'Explore' },
-    { id: 'bookmarks', label: 'Bookmarks' },
-    { id: 'profile', label: 'Profile' }
+  // Revert back to original nav items layout (matching mockup), adding Dashboard/Profile when logged in
+  const navItems = user ? [
+    { id: 'dashboard', path: '/dashboard', label: 'Dashboard' },
+    { id: 'tracker', path: '/tracker', label: 'Tracker' },
+    { id: 'explore', path: '/explore', label: 'Explored' },
+    { id: 'bookmarks', path: '/bookmarks', label: 'Bookmarks' },
+    { id: 'profile', path: '/profile', label: 'Profile' }
+  ] : [
+    { id: 'home', path: '/', label: 'Home' },
+    { id: 'tracker', path: '/tracker', label: 'Tracker' },
+    { id: 'explore', path: '/explore', label: 'Explored' },
+    { id: 'bookmarks', path: '/bookmarks', label: 'Bookmarks' }
   ];
 
-  return (
-    <nav className='flex justify-between items-center px-6 md:px-12 py-4 select-none relative z-50'>
-      <div className='flex items-center gap-2 cursor-pointer' onClick={() => setActiveTab('home')}>
-        <img src={logo} alt="JT Logo" className='h-8 md:h-10 object-contain' />
-      </div>
+  const handleNavClick = (item) => {
+    if (item.path === '/' || user) {
+      navigate(item.path);
+    } else {
+      onOpenAuth();
+    }
+  };
 
-      <div className='flex gap-3 md:gap-6 items-center justify-center bg-lime-400/10 border border-lime-400/30 px-4 md:px-6 py-2 rounded-full backdrop-blur-md shadow-sm'>
-        <ul className='flex gap-3 md:gap-5 items-center justify-center text-xs md:text-sm font-medium text-neutral-700'>
-          {navItems.map((item) => (
-            <li
-              key={item.id}
-              onClick={() => {
-                if (item.id !== 'home' && !user) {
-                  onOpenAuth();
-                } else {
-                  setActiveTab(item.id);
-                }
-              }}
-              className={`cursor-pointer hover:text-lime-600 transition-colors ${
-                activeTab === item.id ? 'text-lime-600 font-bold' : ''
-              }`}
-            >
-              {item.label}
-            </li>
-          ))}
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  return (
+    <nav className='flex justify-between items-center px-8 py-4 select-none relative z-50'>
+      <div 
+        className='flex items-center gap-2 cursor-pointer select-none group' 
+        onClick={() => navigate(user ? '/dashboard' : '/')}
+      >
+        <div className='w-8 h-8 rounded-lg bg-[#a3e635] border-2 border-black flex items-center justify-center font-black text-neutral-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] group-hover:bg-lime-400 transition-colors'>
+          JT
+        </div>
+        <span className='font-extrabold text-xl tracking-tight text-neutral-900 group-hover:text-green-700 transition-colors'>Job Tracker</span>
+      </div>
+      
+      <div className='flex gap-4 items-center justify-center bg-lime-400/20 px-6 py-2 rounded-3xl border border-transparent'>
+        <ul className='flex gap-4 items-center justify-center font-medium text-neutral-800 text-sm'>
+          {navItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <li
+                key={item.id}
+                onClick={() => handleNavClick(item)}
+                className={`cursor-pointer hover:text-green-700 transition-colors ${
+                  isActive ? 'text-green-700 font-bold' : ''
+                }`}
+              >
+                {item.label}
+              </li>
+            );
+          })}
         </ul>
 
         {user ? (
-          <div className='flex items-center gap-2'>
-            <span className='hidden md:inline text-xs text-neutral-600 bg-lime-400/20 px-2 py-0.5 rounded-full font-semibold border border-lime-400/30'>
+          <div className='flex items-center gap-3'>
+            <span className='hidden sm:inline text-xs font-bold text-neutral-800 bg-lime-400/20 px-3 py-1 rounded-full border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
               Hi, {user.firstname}
             </span>
             <button
-              onClick={logout}
-              className='bg-red-400 text-white text-xs md:text-sm font-semibold px-3 py-1.5 border border-black rounded-lg transition-all shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer'
+              onClick={handleLogout}
+              className='bg-rose-500 text-white font-extrabold px-5 py-2 border-2 border-neutral-900 rounded-xl hover:bg-rose-400 transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer text-sm'
             >
               Logout
             </button>
@@ -55,7 +79,7 @@ const Navbar = ({ activeTab, setActiveTab, onOpenAuth }) => {
         ) : (
           <button
             onClick={onOpenAuth}
-            className='bg-[#a3e635] text-neutral-900 text-xs md:text-sm font-bold px-4 py-1.5 border border-black rounded-lg hover:bg-lime-500 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer'
+            className='bg-[#a3e635] text-neutral-950 font-extrabold px-5 py-2 border-2 border-neutral-900 rounded-xl hover:bg-lime-400 transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer text-sm'
           >
             Login
           </button>

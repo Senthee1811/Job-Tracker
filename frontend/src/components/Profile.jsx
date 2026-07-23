@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { IoCloseOutline, IoCheckmarkCircleOutline } from 'react-icons/io5';
+import { 
+  IoCloseOutline, 
+  IoCheckmarkCircleOutline, 
+  IoCloudUploadOutline, 
+  IoDocumentTextOutline 
+} from 'react-icons/io5';
 
 const Profile = () => {
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, uploadCV } = useAuth();
   const [firstname, setFirstname] = useState(user?.firstname || '');
   const [lastname, setLastname] = useState(user?.lastname || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -11,11 +16,16 @@ const Profile = () => {
   const [resumeText, setResumeText] = useState(user?.resumeText || '');
   const [skills, setSkills] = useState(user?.skills || []);
   const [skillInput, setSkillInput] = useState('');
+  const [linkedin, setLinkedin] = useState(user?.linkedin || '');
   
-  // Notice / Success states
+  // Notice / Success / File states
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   if (!user) return null;
 
@@ -32,6 +42,44 @@ const Profile = () => {
     setSkills(skills.filter(s => s !== skillToRemove));
   };
 
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    e.preventDefault();
+    if (!file) return;
+    setUploading(true);
+    setUploadProgress(30);
+    setError('');
+    setSuccess(false);
+
+    try {
+      setUploadProgress(70);
+      const updatedUser = await uploadCV(file);
+      setUploadProgress(100);
+      
+      // Update form states with mock-parsed results
+      if (updatedUser) {
+        setSkills(updatedUser.skills || []);
+        setResumeText(updatedUser.resumeText || '');
+      }
+      
+      setFile(null);
+      setSuccess(true);
+      setTimeout(() => {
+        setSuccess(false);
+        setUploadProgress(0);
+      }, 3000);
+    } catch (err) {
+      setError(err.message || 'CV Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSuccess(false);
@@ -45,7 +93,8 @@ const Profile = () => {
         email,
         age: Number(age),
         skills,
-        resumeText
+        resumeText,
+        linkedin
       });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -69,19 +118,63 @@ const Profile = () => {
       </div>
 
       {success && (
-        <div className='bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs md:text-sm p-4 rounded-xl mb-6 font-semibold flex items-center gap-2'>
+        <div className='bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs md:text-sm p-4 rounded-xl mb-6 font-semibold flex items-center gap-2 text-left'>
           <IoCheckmarkCircleOutline size={20} className='text-emerald-600' />
-          Profile and resume details saved successfully!
+          Profile saved and dynamic parser extraction synchronized successfully!
         </div>
       )}
 
       {error && (
-        <div className='bg-rose-50 border border-rose-200 text-rose-800 text-xs md:text-sm p-4 rounded-xl mb-6 font-semibold'>
+        <div className='bg-rose-50 border border-rose-200 text-rose-800 text-xs md:text-sm p-4 rounded-xl mb-6 font-semibold text-left'>
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className='flex flex-col gap-6 bg-white border-2 border-neutral-900 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'>
+      {/* CV UPLOADER SECTION */}
+      <div className='bg-[#e4ffd4]/20 border-2 border-neutral-900 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-left flex flex-col gap-4 mb-8'>
+        <h3 className='text-sm font-bold tracking-widest text-[#a3e635] bg-neutral-950 px-3 py-1 rounded-md max-w-fit uppercase flex items-center gap-1.5'>
+          <IoCloudUploadOutline size={16} />
+          CV / Resume Upload Facility
+        </h3>
+
+        <form onSubmit={handleFileUpload} className='flex flex-col md:flex-row gap-4 items-center'>
+          <div className='flex-1 w-full border-2 border-dashed border-neutral-300 hover:border-black rounded-xl p-6 text-center cursor-pointer relative bg-white transition-all'>
+            <input 
+              type="file" 
+              accept=".pdf,.doc,.docx,.txt"
+              onChange={handleFileChange}
+              disabled={uploading}
+              className='absolute inset-0 opacity-0 cursor-pointer w-full h-full' 
+            />
+            <div className='flex flex-col items-center gap-2 text-neutral-500'>
+              <IoDocumentTextOutline size={32} className='text-neutral-400' />
+              <span className='text-xs md:text-sm font-bold text-neutral-700'>
+                {file ? file.name : 'Select or drop your CV file'}
+              </span>
+              <span className='text-[10px] text-neutral-400'>
+                Accepts PDF, DOCX, TXT up to 10MB
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={!file || uploading}
+            className='w-full md:w-auto bg-[#a3e635] text-neutral-900 font-bold px-6 py-4 border-2 border-neutral-900 rounded-lg hover:bg-lime-400 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all'
+          >
+            {uploading ? `Parsing ${uploadProgress}%...` : 'Upload & Parse'}
+          </button>
+        </form>
+
+        {user.cvName && (
+          <div className='text-xxs font-bold text-neutral-500 bg-neutral-100 border border-neutral-200 px-3 py-1 rounded-lg max-w-fit'>
+            Active Document: {user.cvName}
+          </div>
+        )}
+      </div>
+
+      {/* DETAILED PROFILE FORM */}
+      <form onSubmit={handleSubmit} className='flex flex-col gap-6 bg-white border-2 border-neutral-900 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-left'>
         
         {/* Personal Details */}
         <h3 className='text-sm font-bold tracking-widest text-[#a3e635] bg-neutral-950 px-3 py-1 rounded-md max-w-fit uppercase'>
@@ -130,6 +223,16 @@ const Profile = () => {
               className='border border-neutral-300 focus:border-black rounded-lg px-3 py-2 text-sm outline-none'
             />
           </div>
+          <div className='flex flex-col gap-1.5 md:col-span-2'>
+            <label className='text-xs font-bold text-neutral-700 uppercase'>LinkedIn Profile URL</label>
+            <input
+              type="url"
+              placeholder="e.g. https://www.linkedin.com/in/username"
+              value={linkedin}
+              onChange={(e) => setLinkedin(e.target.value)}
+              className='border border-neutral-300 focus:border-black rounded-lg px-3 py-2 text-sm outline-none'
+            />
+          </div>
         </div>
 
         <hr className='border-neutral-100 my-2' />
@@ -167,7 +270,7 @@ const Profile = () => {
           {/* Active Skills tags */}
           <div className='flex flex-wrap gap-2 mt-1.5 min-h-[40px] p-2 bg-neutral-50 rounded-xl border border-neutral-200'>
             {skills.length === 0 ? (
-              <span className='text-xs text-neutral-400 font-medium pl-1 self-center'>No skills added. Add tags to feed the resume matching engine!</span>
+              <span className='text-xs text-neutral-400 font-medium pl-1 self-center'>No skills added. Upload your CV to extract them automatically!</span>
             ) : (
               skills.map((skill) => (
                 <span 
@@ -196,9 +299,9 @@ const Profile = () => {
         </h3>
         
         <div className='flex flex-col gap-1.5'>
-          <label className='text-xs font-bold text-neutral-700 uppercase'>Paste Resume / Professional Summary</label>
+          <label className='text-xs font-bold text-neutral-700 uppercase'>Resume Summary Text</label>
           <textarea
-            placeholder="Paste your resume or details about your academic and professional history here..."
+            placeholder="Upload a resume file above or paste your resume content directly here..."
             rows="6"
             value={resumeText}
             onChange={(e) => setResumeText(e.target.value)}

@@ -35,9 +35,8 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem("token", data.token);
       setUser(data.user);
       return data.user;
-    } catch (err) {
+    } finally {
       setLoading(false);
-      throw err;
     }
   };
 
@@ -48,9 +47,8 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem("token", data.token);
       setUser(data.user);
       return data.user;
-    } catch (err) {
+    } finally {
       setLoading(false);
-      throw err;
     }
   };
 
@@ -69,6 +67,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const uploadCV = async (file) => {
+    try {
+      const data = await api.uploadCV(file);
+      setUser(data.user);
+      return data.user;
+    } catch (err) {
+      throw err;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -78,6 +86,7 @@ export const AuthProvider = ({ children }) => {
         register,
         logout,
         updateProfile,
+        uploadCV,
         refreshProfile: fetchProfile,
       }}
     >

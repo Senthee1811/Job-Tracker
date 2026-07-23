@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import { connectDB } from './lib/db.js';
 import { userRouter } from "./routes/userRouter.js";
 import { applicationRouter } from "./routes/applicationRouter.js";
+import { jobsRouter } from "./routes/jobsRouter.js";
+import { reminderRouter } from "./routes/reminderRouter.js";
 
 
 dotenv.config()
@@ -29,6 +31,9 @@ app.get("/", (req,res) => {
 
 app.use("/api/users", userRouter);
 app.use("/api/applications", applicationRouter);
+app.use("/api/jobs", jobsRouter);
+app.use("/api/reminders", reminderRouter);
+
 
 
 

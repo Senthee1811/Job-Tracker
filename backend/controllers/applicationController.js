@@ -7,7 +7,7 @@ export const createApplication = async (req, res) => {
         title, 
         requirements = "No requirements specified", 
         mode = "remote", 
-        salary = 0, 
+        salary = "0", 
         location = "", 
         status = "applied", 
         company,
