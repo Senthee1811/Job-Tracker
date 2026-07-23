@@ -190,7 +190,7 @@ function App() {
         </Routes>
       </div>
 
-      <Footer setActiveTab={(tab) => navigate(`/${tab}`)} />
+      {!user && <Footer setActiveTab={(tab) => navigate(`/${tab}`)} />}
 
       {/* Global Modals Overlays */}
       <AuthModal 

@@ -190,13 +190,26 @@ const ExploreJobs = ({
                       </span>
                     </div>
 
-                    <button
-                      onClick={() => onAutoApply(job)}
-                      className='bg-[#a3e635] text-neutral-900 font-bold text-xxs px-3.5 py-1.5 border-2 border-black rounded-lg hover:bg-lime-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer flex items-center gap-1'
-                    >
-                      <IoFlashOutline size={13} />
-                      Auto Apply
-                    </button>
+                    <div className='flex items-center gap-2'>
+                      {job.link && (
+                        <a 
+                          href={job.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className='inline-flex items-center gap-1 text-[10px] font-extrabold text-[#0077b5] hover:text-[#006297] border border-neutral-200 hover:border-black bg-neutral-50 px-2 py-1.5 rounded-lg transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-none'
+                        >
+                          <IoLogoLinkedin size={12} />
+                          See Job
+                        </a>
+                      )}
+                      <button
+                        onClick={() => onAutoApply(job)}
+                        className='bg-[#a3e635] text-neutral-900 font-bold text-xxs px-3.5 py-1.5 border-2 border-black rounded-lg hover:bg-lime-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer flex items-center gap-1'
+                      >
+                        <IoFlashOutline size={13} />
+                        Auto Apply
+                      </button>
+                    </div>
                   </div>
 
                 </div>

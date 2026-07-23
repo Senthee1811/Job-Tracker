@@ -15,7 +15,9 @@ import {
   IoLogoGoogle,
   IoLogoLinkedin,
   IoTimeOutline,
-  IoShieldCheckmarkOutline
+  IoShieldCheckmarkOutline,
+  IoTrashOutline,
+  IoCloseOutline
 } from 'react-icons/io5';
 
 const Dashboard = ({ setActiveTab }) => {
@@ -27,24 +29,45 @@ const Dashboard = ({ setActiveTab }) => {
   // Manual job modal trigger
   const [showAddModal, setShowAddModal] = useState(false);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!user) return;
-      try {
-        const data = await api.getApplications();
-        setApplications(data.applications || []);
-      } catch (err) {
-        console.error(err);
-        if (err.message && err.message.toLowerCase().includes('no applications found')) {
-          setApplications([]);
-        } else {
-          setError('Failed to load application statistics');
-        }
-      } finally {
-        setLoading(false);
+  // Reminders and form states
+  const [reminders, setReminders] = useState([]);
+  const [showAddReminderForm, setShowAddReminderForm] = useState(false);
+  const [reminderTitle, setReminderTitle] = useState('');
+  const [reminderDate, setReminderDate] = useState('');
+  const [reminderTime, setReminderTime] = useState('10:00');
+  const [reminderDesc, setReminderDesc] = useState('');
+  const [reminderColor, setReminderColor] = useState('#a3e635');
+
+  const fetchStats = async () => {
+    if (!user) return;
+    try {
+      const data = await api.getApplications();
+      setApplications(data.applications || []);
+    } catch (err) {
+      console.error(err);
+      if (err.message && err.message.toLowerCase().includes('no applications found')) {
+        setApplications([]);
+      } else {
+        setError('Failed to load application statistics');
       }
-    };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchReminders = async () => {
+    if (!user) return;
+    try {
+      const data = await api.getReminders();
+      setReminders(data.reminders || []);
+    } catch (err) {
+      console.error("Failed to load reminders", err);
+    }
+  };
+
+  useEffect(() => {
     fetchStats();
+    fetchReminders();
   }, [user]);
 
   // Aggregate stats
@@ -63,6 +86,130 @@ const Dashboard = ({ setActiveTab }) => {
   const interviewedPct = getPercentage(interviewed);
   const offeredPct = getPercentage(offered);
 
+  // Reminder CRUD actions
+  const handleAddReminder = async (e) => {
+    e.preventDefault();
+    if (!reminderTitle || !reminderDate) {
+      alert("Please fill in Title and Date");
+      return;
+    }
+    try {
+      await api.createReminder({
+        title: reminderTitle,
+        description: reminderDesc,
+        date: reminderDate,
+        time: reminderTime,
+        color: reminderColor
+      });
+      setReminderTitle('');
+      setReminderDate('');
+      setReminderTime('10:00');
+      setReminderDesc('');
+      setShowAddReminderForm(false);
+      fetchReminders();
+    } catch (err) {
+      alert(err.message || "Failed to create reminder");
+    }
+  };
+
+  const handleDeleteReminder = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this reminder?")) return;
+    try {
+      await api.deleteReminder(id);
+      fetchReminders();
+    } catch (err) {
+      alert("Failed to delete reminder");
+    }
+  };
+
+  // Grouping and combining events dynamically
+  const formatDateLabel = (dateInput) => {
+    if (!dateInput) return '';
+    // If it is already in standard format (e.g. YYYY-MM-DD), let's render nicely
+    const dateObj = new Date(dateInput);
+    if (isNaN(dateObj.getTime())) return String(dateInput);
+    return dateObj.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const getCombinedCalendarEvents = () => {
+    const events = [];
+
+    // 1. Add applications milestones dynamically
+    applications.forEach(app => {
+      if (app.createdAt) {
+        events.push({
+          id: `applied-${app._id}`,
+          title: `Applied: ${app.title}`,
+          subtitle: app.company,
+          date: app.createdAt.split('T')[0],
+          time: new Date(app.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          color: '#581c87', // Purple
+          isManual: false
+        });
+      }
+
+      if (app.status === 'interviewed') {
+        events.push({
+          id: `interview-${app._id}`,
+          title: `Interview Scheduled`,
+          subtitle: `${app.title} at ${app.company}`,
+          date: (app.updatedAt || app.createdAt).split('T')[0],
+          time: new Date(app.updatedAt || app.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          color: '#ea580c', // Orange
+          isManual: false
+        });
+      }
+
+      if (app.status === 'offered') {
+        events.push({
+          id: `offer-${app._id}`,
+          title: `Offer Received 🎉`,
+          subtitle: `${app.title} at ${app.company}`,
+          date: (app.updatedAt || app.createdAt).split('T')[0],
+          time: new Date(app.updatedAt || app.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          color: '#a3e635', // Lime/Green
+          isManual: false
+        });
+      }
+    });
+
+    // 2. Add manual user reminders
+    reminders.forEach(rem => {
+      events.push({
+        id: rem._id,
+        title: rem.title,
+        subtitle: rem.description || 'Reminder',
+        date: rem.date,
+        time: rem.time,
+        color: rem.color || '#a3e635',
+        isManual: true
+      });
+    });
+
+    // Group by date
+    const grouped = {};
+    events.forEach(evt => {
+      const label = evt.date;
+      if (!grouped[label]) {
+        grouped[label] = [];
+      }
+      grouped[label].push(evt);
+    });
+
+    // Sort dates ascending
+    const sortedDates = Object.keys(grouped).sort((a, b) => new Date(a) - new Date(b));
+
+    return sortedDates.map(d => ({
+      dateRaw: d,
+      dateLabel: formatDateLabel(d),
+      events: grouped[d].sort((x, y) => x.time.localeCompare(y.time))
+    }));
+  };
+
   // Date styling
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -72,8 +219,8 @@ const Dashboard = ({ setActiveTab }) => {
   });
 
   return (
-    <div className='max-w-7xl mx-auto px-4 py-8 select-none font-sans text-neutral-800'>
-      <div className='bg-white border-2 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden flex flex-col md:flex-row min-h-[80vh] relative z-10'>
+    <div className='max-w-[1600px] mx-auto px-6 py-6 select-none font-sans text-neutral-800 w-full'>
+      <div className='bg-white border-2 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden flex flex-col md:flex-row min-h-[86vh] relative z-10 w-full'>
         
         {/* PANEL 1: LEFT SIDEBAR */}
         <aside className='w-full md:w-60 border-b-2 md:border-b-0 md:border-r-2 border-black p-6 flex flex-col justify-between bg-lime-400/5 min-h-fit md:min-h-full'>
@@ -83,17 +230,28 @@ const Dashboard = ({ setActiveTab }) => {
               <div className='w-8 h-8 rounded-lg bg-[#a3e635] border-2 border-black flex items-center justify-center font-black text-neutral-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
                 JT
               </div>
-              <span className='font-bold text-lg tracking-tight'>JT Chaart</span>
+              <span className='font-bold text-lg tracking-tight'>JT Chart</span>
             </div>
 
             {/* Profile Card */}
-            <div className='flex flex-col items-center text-center gap-2 py-3 bg-white border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]'>
+            <div className='flex flex-col items-center text-center gap-2 py-3 bg-white border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] w-full'>
               <div className='w-16 h-16 rounded-full bg-lime-100 border-2 border-black overflow-hidden relative flex items-center justify-center font-extrabold text-neutral-800 text-xl shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
                 {user?.firstname?.[0]?.toUpperCase()}{user?.lastname?.[0]?.toUpperCase()}
               </div>
-              <div>
-                <h4 className='font-extrabold text-sm text-neutral-900'>{user?.firstname} {user?.lastname}</h4>
-                <p className='text-xxs font-semibold text-neutral-400 truncate max-w-[150px]'>{user?.email}</p>
+              <div className='px-2 w-full'>
+                <h4 className='font-extrabold text-sm text-neutral-900 truncate'>{user?.firstname} {user?.lastname}</h4>
+                <p className='text-xxs font-semibold text-neutral-400 truncate w-full'>{user?.email}</p>
+                {user?.linkedin && (
+                  <a 
+                    href={user.linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className='mt-2.5 inline-flex items-center justify-center gap-1.5 bg-[#0077b5] text-white font-extrabold text-[10px] uppercase px-3 py-1 border border-black rounded-md hover:bg-[#006297] transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-none'
+                  >
+                    <IoLogoLinkedin size={10} />
+                    LinkedIn
+                  </a>
+                )}
               </div>
             </div>
 
@@ -316,92 +474,133 @@ const Dashboard = ({ setActiveTab }) => {
 
           </div>
 
-        </main>
-
-        {/* PANEL 3: RIGHT CALENDAR SIDEBAR */}
+        </main>        {/* PANEL 3: RIGHT CALENDAR SIDEBAR */}
         <aside className='w-full md:w-60 border-t-2 md:border-t-0 md:border-l-2 border-black p-6 flex flex-col gap-6 bg-lime-400/5'>
           
           <div className='flex justify-between items-center border-b border-neutral-200 pb-4'>
             <span className='font-extrabold text-sm tracking-wider text-neutral-800 uppercase'>Calendar</span>
-            <button className='bg-white border-2 border-black p-1.5 rounded-lg hover:bg-neutral-50 transition-colors cursor-pointer shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
-              <IoNotificationsOutline size={16} />
+            <button 
+              onClick={() => setShowAddReminderForm(!showAddReminderForm)}
+              className='bg-[#a3e635] text-neutral-900 border-2 border-black p-1.5 rounded-lg hover:bg-lime-400 transition-colors cursor-pointer shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+              title="Add Reminder"
+            >
+              <IoAddOutline size={16} />
             </button>
           </div>
 
+          {/* Add Reminder Inline Form */}
+          {showAddReminderForm && (
+            <form onSubmit={handleAddReminder} className='bg-white border-2 border-black rounded-xl p-3 flex flex-col gap-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] animate-in slide-in-from-top-3 duration-200'>
+              <div className='flex justify-between items-center border-b border-neutral-100 pb-1.5'>
+                <span className='text-[10px] font-extrabold text-neutral-700 uppercase'>New Reminder</span>
+                <button type="button" onClick={() => setShowAddReminderForm(false)} className='text-neutral-400 hover:text-neutral-900'>
+                  <IoCloseOutline size={16} />
+                </button>
+              </div>
+              <div className='flex flex-col gap-1'>
+                <label className='text-[9px] font-bold text-neutral-500 uppercase'>Title *</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="e.g. Call recruiter" 
+                  value={reminderTitle}
+                  onChange={(e) => setReminderTitle(e.target.value)}
+                  className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
+                />
+              </div>
+              <div className='grid grid-cols-2 gap-2'>
+                <div className='flex flex-col gap-1'>
+                  <label className='text-[9px] font-bold text-neutral-500 uppercase'>Date *</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={reminderDate}
+                    onChange={(e) => setReminderDate(e.target.value)}
+                    className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
+                  />
+                </div>
+                <div className='flex flex-col gap-1'>
+                  <label className='text-[9px] font-bold text-neutral-500 uppercase'>Time *</label>
+                  <input 
+                    type="time" 
+                    required
+                    value={reminderTime}
+                    onChange={(e) => setReminderTime(e.target.value)}
+                    className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
+                  />
+                </div>
+              </div>
+              <div className='flex flex-col gap-1'>
+                <label className='text-[9px] font-bold text-neutral-500 uppercase'>Description</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Follow up on status" 
+                  value={reminderDesc}
+                  onChange={(e) => setReminderDesc(e.target.value)}
+                  className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
+                />
+              </div>
+              <div className='flex justify-between items-center mt-1'>
+                {/* Color Selector */}
+                <div className='flex gap-1.5'>
+                  {['#a3e635', '#ea580c', '#581c87', '#0d9488'].map(c => (
+                    <button 
+                      key={c}
+                      type="button" 
+                      onClick={() => setReminderColor(c)}
+                      className={`w-4 h-4 rounded-full border border-black cursor-pointer ${reminderColor === c ? 'ring-2 ring-neutral-400' : ''}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+                <button type="submit" className='bg-neutral-900 text-white font-bold text-[10px] px-3 py-1.5 rounded border border-black hover:bg-neutral-800 transition-colors cursor-pointer'>
+                  Save
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Calendar Event Days List */}
           <div className='flex flex-col gap-6 text-left overflow-y-auto max-h-[70vh] pr-1'>
-            {/* Event Day 1 */}
-            <div className='flex flex-col gap-3'>
-              <span className='text-[10px] font-extrabold tracking-widest text-neutral-400 uppercase'>Oct 20, 2026</span>
-              <div className='flex flex-col gap-2.5'>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#a3e635]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>10:00</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>Dribbble shot</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Facebook Brand</p>
-                  </div>
-                </div>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#ea580c]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>13:20</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>Design</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Task Management</p>
-                  </div>
-                </div>
+            {getCombinedCalendarEvents().length === 0 ? (
+              <div className='text-center py-16 text-neutral-400 italic text-xs'>
+                No upcoming events or reminders. Click the + icon to add a reminder!
               </div>
-            </div>
-
-            {/* Event Day 2 */}
-            <div className='flex flex-col gap-3'>
-              <span className='text-[10px] font-extrabold tracking-widest text-neutral-400 uppercase'>Oct 21, 2026</span>
-              <div className='flex flex-col gap-2.5'>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#581c87]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>10:00</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>UX Research</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Sleep App</p>
+            ) : (
+              getCombinedCalendarEvents().map((day) => (
+                <div key={day.dateRaw} className='flex flex-col gap-3'>
+                  <span className='text-[10px] font-extrabold tracking-widest text-neutral-400 uppercase'>{day.dateLabel}</span>
+                  <div className='flex flex-col gap-2.5'>
+                    {day.events.map((evt) => (
+                      <div 
+                        key={evt.id}
+                        className='bg-white border-2 border-black rounded-2xl p-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex justify-between items-center group relative overflow-hidden'
+                      >
+                        <div className='flex gap-3 pl-2' style={{ borderLeft: `3px solid ${evt.color}` }}>
+                          <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>{evt.time}</span>
+                          <div>
+                            <h5 className='text-xs font-bold text-neutral-800 leading-tight'>{evt.title}</h5>
+                            <p className='text-[10px] font-semibold text-neutral-400 mt-0.5'>{evt.subtitle}</p>
+                          </div>
+                        </div>
+                        {evt.isManual && (
+                          <button 
+                            onClick={() => handleDeleteReminder(evt.id)}
+                            className='text-neutral-400 hover:text-rose-600 transition-colors p-1 cursor-pointer absolute right-2 top-2 bg-white/80 rounded-md border border-neutral-100 opacity-0 group-hover:opacity-100 transition-opacity duration-150'
+                            title="Delete Reminder"
+                          >
+                            <IoTrashOutline size={12} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#0d9488]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>13:20</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>Design</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Task Management</p>
-                  </div>
-                </div>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#a3e635]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>16:00</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>Dribbble shot</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Meet Up</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Event Day 3 */}
-            <div className='flex flex-col gap-3'>
-              <span className='text-[10px] font-extrabold tracking-widest text-neutral-400 uppercase'>Oct 22, 2026</span>
-              <div className='flex flex-col gap-2.5'>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#ea580c]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>10:00</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>Dribbble shot</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Meet Up</p>
-                  </div>
-                </div>
-                <div className='flex gap-3 pl-2 border-l-2 border-l-[#581c87]'>
-                  <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>11:00</span>
-                  <div>
-                    <h5 className='text-xs font-bold text-neutral-800 leading-tight'>Design</h5>
-                    <p className='text-[10px] font-semibold text-neutral-400'>Mobile App</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+              ))
+            )}
           </div>
 
         </aside>
-
       </div>
     </div>
   );

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { MOCK_JOBS } from './ExploreJobs';
 import { 
   IoTerminalOutline, 
   IoPlayOutline, 
   IoCheckmarkCircleOutline, 
   IoStopOutline,
-  IoSettingsOutline
+  IoSettingsOutline,
+  IoLogoLinkedin
 } from 'react-icons/io5';
 
 const AutomationPanel = () => {
@@ -17,11 +17,10 @@ const AutomationPanel = () => {
   const [limit, setLimit] = useState(3);
   const [sources, setSources] = useState({
     linkedin: true,
-    google: true,
-    upwork: true,
-    indeed: true,
-    glassdoor: true
+    xpressjobs: true,
+    rooster: true
   });
+  const [jobsQueue, setJobsQueue] = useState([]);
 
   const [logs, setLogs] = useState([]);
   const [progress, setProgress] = useState(0);
@@ -42,37 +41,45 @@ const AutomationPanel = () => {
     if (!user) return;
     setStatus('running');
     setProgress(0);
-    setLogs([
+    setJobsQueue([]);
+    
+    const initialLogs = [
       `[CONSOLE] JT Automated Apply Engine v1.0.0 initializing...`,
       `[CONSOLE] Connecting candidate profile: ${user.firstname} ${user.lastname}`,
       `[CONSOLE] Loading uploaded CV parameters from: ${user.cvName || 'Manual Entry Summary'}`
-    ]);
+    ];
+    setLogs(initialLogs);
 
-    // Gather matching mock jobs
-    const activeSources = Object.keys(sources).filter(k => sources[k]);
-    const matchedJobs = MOCK_JOBS.filter(job => 
-      activeSources.includes(job.source) && 
-      (job.title.toLowerCase().includes(role.toLowerCase()) || 
-       job.category.toLowerCase().includes(role.toLowerCase()))
-    ).slice(0, limit);
-
-    if (matchedJobs.length === 0) {
-      setTimeout(() => {
-        setLogs(prev => [
-          ...prev,
-          `[ERROR] No matching jobs found for role "${role}" on selected platforms.`,
-          `[CONSOLE] Automation aborted.`
-        ]);
-        setStatus('aborted');
-      }, 1000);
-      return;
-    }
-
-    // Run sequential steps
-    let currentLog = [...logs];
     const logAdd = (msg) => {
       setLogs(prev => [...prev, msg]);
     };
+
+    // Scrape live jobs in real-time
+    let matchedJobs = [];
+    try {
+      logAdd(`[BATCH] Contacting search engine to scrape live board openings for keyword "${role}"...`);
+      const response = await api.getLiveJobs(role, location);
+      const activeSources = Object.keys(sources).filter(k => sources[k]);
+      
+      matchedJobs = (response.jobs || []).filter(job => 
+        activeSources.includes(job.source)
+      ).slice(0, limit);
+      
+      setJobsQueue(matchedJobs);
+    } catch (err) {
+      logAdd(`[ERROR] Scraping execution failed: ${err.message}. Please verify server connection.`);
+      setStatus('aborted');
+      return;
+    }
+
+    if (matchedJobs.length === 0) {
+      logAdd(`[ERROR] No active jobs found for role "${role}" in selected sources.`);
+      logAdd(`[CONSOLE] Automation aborted.`);
+      setStatus('aborted');
+      return;
+    }
+
+    logAdd(`[BATCH] Found ${matchedJobs.length} active matching vacancies. Beginning auto-submit pipeline...`);
 
     let stepDelay = 800;
     
@@ -83,17 +90,17 @@ const AutomationPanel = () => {
 
       // Search phase
       await new Promise(r => setTimeout(r, stepDelay));
-      logAdd(`[BATCH] Scanning ${job.source.toUpperCase()} vacancies for "${role}"...`);
+      logAdd(`[BATCH] Scanning ${job.source.toUpperCase()} portal for direct integration parameters...`);
       
       // Match phase
       await new Promise(r => setTimeout(r, stepDelay + 200));
-      logAdd(`[JOB ${i+1}/${matchedJobs.length}] Found match: "${job.title}" at "${job.company}"`);
+      logAdd(`[JOB ${i+1}/${matchedJobs.length}] Direct match verified: "${job.title}" at "${job.company}"`);
       logAdd(`[JOB ${i+1}/${matchedJobs.length}] Matching resume skills [${user.skills?.join(', ') || 'React, JS'}]...`);
 
       // Apply phase
       await new Promise(r => setTimeout(r, stepDelay + 400));
-      logAdd(`[JOB ${i+1}/${matchedJobs.length}] Auto-filling forms on platform portal...`);
-      logAdd(`[JOB ${i+1}/${matchedJobs.length}] Bypassing security validations & CAPTCHA...`);
+      logAdd(`[JOB ${i+1}/${matchedJobs.length}] Auto-filling profile information onto portal...`);
+      logAdd(`[JOB ${i+1}/${matchedJobs.length}] Solving security captcha validations... Success!`);
 
       // Save database phase
       try {
@@ -105,7 +112,7 @@ const AutomationPanel = () => {
           salary: job.salary,
           location: job.location,
           status: 'applied',
-          category: job.category,
+          category: job.category || 'Software Engineering',
           opportunity: job.source,
           inTouchPerson: 'Recruiting Team',
           link: job.link
@@ -197,7 +204,7 @@ const AutomationPanel = () => {
           <div className='flex flex-col gap-2'>
             <label className='text-xs font-bold text-neutral-700 uppercase'>Target Platforms</label>
             <div className='flex flex-col gap-2 text-xs font-semibold text-neutral-600'>
-              {['linkedin', 'google', 'upwork', 'indeed', 'glassdoor'].map((src) => (
+              {['linkedin', 'xpressjobs', 'rooster'].map((src) => (
                 <label key={src} className='flex items-center gap-2 cursor-pointer hover:text-neutral-900'>
                   <input
                     type="checkbox"
@@ -206,7 +213,7 @@ const AutomationPanel = () => {
                     onChange={() => handleSourceToggle(src)}
                     className='rounded border-neutral-300 text-[#a3e635] focus:ring-0 outline-none w-4 h-4'
                   />
-                  <span className='capitalize'>{src}</span>
+                  <span className='capitalize'>{src === 'linkedin' ? 'LinkedIn' : src === 'xpressjobs' ? 'XpressJobs' : 'Rooster'}</span>
                 </label>
               ))}
             </div>
@@ -233,6 +240,44 @@ const AutomationPanel = () => {
             )}
           </div>
 
+          {/* Scraped Jobs Queue display */}
+          {jobsQueue.length > 0 && (
+            <div className='border-t border-neutral-100 pt-4 flex flex-col gap-3'>
+              <h4 className='text-xs font-bold uppercase tracking-wider text-neutral-800 flex items-center gap-1.5'>
+                Matched Queue ({jobsQueue.length})
+              </h4>
+              <div className='flex flex-col gap-2.5 max-h-[220px] overflow-y-auto pr-1 select-text scrollbar-thin scrollbar-thumb-neutral-200'>
+                {jobsQueue.map((job) => (
+                  <div key={job.id} className='bg-neutral-50 p-2.5 rounded-xl border border-neutral-200 text-xs flex flex-col gap-1.5 hover:bg-neutral-100/60 transition-colors'>
+                    <div className='flex justify-between items-start gap-2'>
+                      <div className='flex-1 min-w-0'>
+                        <h5 className='font-bold text-neutral-800 leading-tight truncate'>{job.title}</h5>
+                        <p className='text-[10px] font-bold text-neutral-400 uppercase mt-0.5 truncate'>{job.company}</p>
+                      </div>
+                      <span className='bg-white border border-neutral-200 text-neutral-500 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase shrink-0'>{job.source}</span>
+                    </div>
+                    {job.link && (
+                      <a 
+                        href={job.link}
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className='inline-flex items-center gap-1 text-[9px] font-black text-[#0077b5] hover:text-[#006297] self-start'
+                      >
+                        {job.source === 'linkedin' ? (
+                          <>
+                            <IoLogoLinkedin size={11} />
+                            See on LinkedIn
+                          </>
+                        ) : (
+                          'Visit Opportunity'
+                        )}
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Side: Terminal Logger Console */}

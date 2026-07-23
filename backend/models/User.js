@@ -41,6 +41,10 @@ const userSchema = new mongoose.Schema({
     cvName: {
         type: String,
         default: ""
+    },
+    linkedin: {
+        type: String,
+        default: ""
     }
 },{ timestamps: true }); 
 

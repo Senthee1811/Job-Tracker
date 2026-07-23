@@ -118,4 +118,29 @@ export const api = {
     });
     return handleResponse(res);
   },
+
+  getReminders: async () => {
+    const res = await fetch(`${BASE_URL}/reminders`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  createReminder: async (reminderData) => {
+    const res = await fetch(`${BASE_URL}/reminders`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(reminderData),
+    });
+    return handleResponse(res);
+  },
+
+  deleteReminder: async (id) => {
+    const res = await fetch(`${BASE_URL}/reminders/${id}`, {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
 };

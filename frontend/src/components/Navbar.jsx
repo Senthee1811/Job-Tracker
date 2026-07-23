@@ -36,13 +36,14 @@ const Navbar = ({ onOpenAuth }) => {
 
   return (
     <nav className='flex justify-between items-center px-8 py-4 select-none relative z-50'>
-      <div>
-        <h1 
-          className='text-2xl font-bold cursor-pointer hover:text-green-700 transition-colors' 
-          onClick={() => navigate(user ? '/dashboard' : '/')}
-        >
-          Job Tracker
-        </h1>
+      <div 
+        className='flex items-center gap-2 cursor-pointer select-none group' 
+        onClick={() => navigate(user ? '/dashboard' : '/')}
+      >
+        <div className='w-8 h-8 rounded-lg bg-[#a3e635] border-2 border-black flex items-center justify-center font-black text-neutral-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] group-hover:bg-lime-400 transition-colors'>
+          JT
+        </div>
+        <span className='font-extrabold text-xl tracking-tight text-neutral-900 group-hover:text-green-700 transition-colors'>Job Tracker</span>
       </div>
       
       <div className='flex gap-4 items-center justify-center bg-lime-400/20 px-6 py-2 rounded-3xl border border-transparent'>

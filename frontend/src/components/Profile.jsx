@@ -16,6 +16,7 @@ const Profile = () => {
   const [resumeText, setResumeText] = useState(user?.resumeText || '');
   const [skills, setSkills] = useState(user?.skills || []);
   const [skillInput, setSkillInput] = useState('');
+  const [linkedin, setLinkedin] = useState(user?.linkedin || '');
   
   // Notice / Success / File states
   const [success, setSuccess] = useState(false);
@@ -92,7 +93,8 @@ const Profile = () => {
         email,
         age: Number(age),
         skills,
-        resumeText
+        resumeText,
+        linkedin
       });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -218,6 +220,16 @@ const Profile = () => {
               min="1"
               value={age}
               onChange={(e) => setAge(e.target.value)}
+              className='border border-neutral-300 focus:border-black rounded-lg px-3 py-2 text-sm outline-none'
+            />
+          </div>
+          <div className='flex flex-col gap-1.5 md:col-span-2'>
+            <label className='text-xs font-bold text-neutral-700 uppercase'>LinkedIn Profile URL</label>
+            <input
+              type="url"
+              placeholder="e.g. https://www.linkedin.com/in/username"
+              value={linkedin}
+              onChange={(e) => setLinkedin(e.target.value)}
               className='border border-neutral-300 focus:border-black rounded-lg px-3 py-2 text-sm outline-none'
             />
           </div>

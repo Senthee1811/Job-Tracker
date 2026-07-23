@@ -15,9 +15,9 @@ const applicationSchema = new mongoose.Schema({
         enum: ["remote", "on-site", "hybrid"]
     },
     salary:{
-        type: Number,
+        type: String,
         required: true,
-        default: 0
+        default: "0"
     },
     location: {
         type: String, 

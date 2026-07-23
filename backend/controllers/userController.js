@@ -103,7 +103,7 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
     const userId = req.user.userId;
-    const { firstname, lastname, email, age, skills, resumeText } = req.body;
+    const { firstname, lastname, email, age, skills, resumeText, linkedin } = req.body;
     try {
         const user = await User.findById(userId);
         if (!user) {
@@ -121,6 +121,7 @@ export const updateUserProfile = async (req, res) => {
         if (age !== undefined) user.age = age;
         if (skills !== undefined) user.skills = skills;
         if (resumeText !== undefined) user.resumeText = resumeText;
+        if (linkedin !== undefined) user.linkedin = linkedin;
 
         await user.save();
         return res.status(200).json({ message: "Profile updated successfully", user });
