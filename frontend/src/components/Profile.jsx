@@ -9,7 +9,9 @@ import {
   IoDownloadOutline,
   IoTrashOutline,
   IoTimeOutline,
-  IoShieldCheckmarkOutline
+  IoShieldCheckmarkOutline,
+  IoFlashOutline,
+  IoSparklesOutline
 } from 'react-icons/io5';
 
 const Profile = () => {
@@ -25,12 +27,17 @@ const Profile = () => {
   
   // Notice / Success / File states
   const [success, setSuccess] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Skill Parsing states
+  const [parsingSkills, setParsingSkills] = useState(false);
+  const [detectedSkills, setDetectedSkills] = useState([]);
 
   // CV Version History state
   const [cvHistory, setCvHistory] = useState([]);
@@ -90,6 +97,12 @@ const Profile = () => {
       if (updatedUser) {
         setSkills(updatedUser.skills || []);
         setResumeText(updatedUser.resumeText || '');
+        if (updatedUser.extractedSkills?.length > 0) {
+          setDetectedSkills(updatedUser.extractedSkills);
+          setSuccessMsg(`CV uploaded & parsed ${updatedUser.extractedSkills.length} skills into your profile!`);
+        } else {
+          setSuccessMsg('CV uploaded and processed successfully!');
+        }
       }
       
       setFile(null);
@@ -99,13 +112,54 @@ const Profile = () => {
 
       setTimeout(() => {
         setSuccess(false);
+        setSuccessMsg('');
         setUploadProgress(0);
-      }, 3000);
+      }, 4000);
     } catch (err) {
       setError(err.message || 'CV Upload failed');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleParseCvSkills = async () => {
+    if (!user.cvPath && !resumeText.trim()) {
+      setError('Please upload a CV or paste your resume text first to parse skills.');
+      return;
+    }
+    setParsingSkills(true);
+    setError('');
+    try {
+      const res = await api.parseCvSkills(true);
+      const newSkills = res.extractedSkills || [];
+      setDetectedSkills(newSkills);
+      if (res.user?.skills) {
+        setSkills(res.user.skills);
+      } else {
+        setSkills(prev => Array.from(new Set([...prev, ...newSkills])));
+      }
+      setSuccessMsg(`Successfully parsed ${newSkills.length} skills from your CV!`);
+      setSuccess(true);
+      if (refreshProfile) refreshProfile();
+      setTimeout(() => {
+        setSuccess(false);
+        setSuccessMsg('');
+      }, 4000);
+    } catch (err) {
+      setError(err.message || 'Failed to parse skills from CV');
+    } finally {
+      setParsingSkills(false);
+    }
+  };
+
+  const handleAddDetectedSkill = (skill) => {
+    if (!skills.includes(skill)) {
+      setSkills(prev => [...prev, skill]);
+    }
+  };
+
+  const handleAddAllDetectedSkills = () => {
+    setSkills(prev => Array.from(new Set([...prev, ...detectedSkills])));
   };
 
   const handleDeleteCvVersion = async (id) => {
@@ -165,8 +219,8 @@ const Profile = () => {
 
       {success && (
         <div className='bg-lime-50 border-2 border-[#a3e635] text-lime-800 text-xs font-bold p-4 rounded-xl flex items-center gap-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'>
-          <IoCheckmarkCircleOutline className='text-lg' />
-          Profile updated successfully!
+          <IoCheckmarkCircleOutline className='text-lg flex-shrink-0' />
+          <span>{successMsg || 'Profile updated successfully!'}</span>
         </div>
       )}
 
@@ -214,21 +268,35 @@ const Profile = () => {
 
         {/* Current Active CV Status */}
         {user.cvPath && (
-          <div className='p-3 bg-neutral-50 border border-neutral-200 rounded-xl flex items-center justify-between text-xs'>
-            <div className='flex items-center gap-2'>
-              <IoDocumentTextOutline className='w-4 h-4 text-lime-600' />
-              <span className='font-bold text-neutral-800'>Active CV:</span>
-              <span className='text-neutral-600'>{user.cvName || 'Resume.pdf'}</span>
+          <div className='p-3.5 bg-neutral-50 border-2 border-neutral-900 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'>
+            <div className='flex items-center gap-2.5'>
+              <IoDocumentTextOutline className='w-5 h-5 text-lime-600 flex-shrink-0' />
+              <div>
+                <span className='font-bold text-neutral-800'>Active CV: </span>
+                <span className='text-neutral-600 font-medium'>{user.cvName || 'Resume.pdf'}</span>
+              </div>
             </div>
-            <a
-              href={user.cvPath}
-              target="_blank"
-              rel="noreferrer"
-              className='font-bold text-lime-700 hover:text-lime-800 underline flex items-center gap-1'
-            >
-              <IoDownloadOutline className='w-3.5 h-3.5' />
-              <span>Download File</span>
-            </a>
+            <div className='flex items-center gap-2.5 flex-wrap'>
+              <button
+                type="button"
+                onClick={handleParseCvSkills}
+                disabled={parsingSkills}
+                className='px-3 py-1.5 bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-lg hover:bg-lime-400 transition-all flex items-center gap-1.5 text-[11px] cursor-pointer disabled:opacity-50 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                title="Extract skills directly from this CV"
+              >
+                <IoFlashOutline className={`w-3.5 h-3.5 ${parsingSkills ? 'animate-spin' : ''}`} />
+                <span>{parsingSkills ? 'Extracting Skills...' : 'Parse Skills from CV'}</span>
+              </button>
+              <a
+                href={user.cvPath}
+                target="_blank"
+                rel="noreferrer"
+                className='font-bold text-neutral-700 hover:text-black underline flex items-center gap-1 text-[11px] px-2 py-1'
+              >
+                <IoDownloadOutline className='w-3.5 h-3.5' />
+                <span>Download</span>
+              </a>
+            </div>
           </div>
         )}
       </div>
@@ -373,10 +441,68 @@ const Profile = () => {
         </div>
 
         {/* Skills Tag Input */}
-        <div className='space-y-2 text-xs'>
-          <label className='block font-bold text-neutral-700'>
-            Verified Skills Checklist ({skills.length})
-          </label>
+        <div className='space-y-3 text-xs'>
+          <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-100 pb-2'>
+            <div>
+              <label className='block font-bold text-neutral-800 text-sm'>
+                Verified Skills Checklist ({skills.length})
+              </label>
+              <p className='text-[11px] text-neutral-500'>
+                Parsed from your CV and used for 0–100 ATS hybrid recommendations.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleParseCvSkills}
+              disabled={parsingSkills || (!user.cvPath && !resumeText.trim())}
+              className='px-3.5 py-1.5 bg-lime-100 hover:bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-xl transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center gap-1.5 cursor-pointer disabled:opacity-40 self-start sm:self-auto text-xs'
+              title="Scan active CV text and extract technical skills automatically"
+            >
+              <IoFlashOutline className={`w-3.5 h-3.5 ${parsingSkills ? 'animate-spin' : 'text-lime-700'}`} />
+              <span>{parsingSkills ? 'Extracting Skills...' : '⚡ Auto-Parse from CV'}</span>
+            </button>
+          </div>
+
+          {/* Detected Skills from CV Preview Tray */}
+          {detectedSkills.length > 0 && (
+            <div className='p-3.5 bg-lime-50 border-2 border-lime-500 rounded-xl space-y-2 shadow-[2px_2px_0px_0px_rgba(163,230,53,0.3)]'>
+              <div className='flex items-center justify-between gap-2 flex-wrap'>
+                <span className='font-bold text-lime-900 text-xs flex items-center gap-1.5'>
+                  <IoSparklesOutline className='text-sm text-lime-700' />
+                  Detected {detectedSkills.length} skills from your resume:
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAddAllDetectedSkills}
+                  className='text-[11px] font-extrabold text-lime-900 underline hover:text-black cursor-pointer'
+                >
+                  + Add All to Checklist
+                </button>
+              </div>
+              <div className='flex flex-wrap gap-1.5'>
+                {detectedSkills.map((ds, idx) => {
+                  const alreadyAdded = skills.includes(ds);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleAddDetectedSkill(ds)}
+                      disabled={alreadyAdded}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1 ${
+                        alreadyAdded
+                          ? 'bg-lime-200 border-lime-400 text-lime-900 opacity-80 cursor-default'
+                          : 'bg-white border-lime-600 text-neutral-900 hover:bg-lime-300 cursor-pointer shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                      }`}
+                    >
+                      <span>{ds}</span>
+                      <span className='text-[10px]'>{alreadyAdded ? '✓' : '+'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className='flex gap-2'>
             <input 
               type="text" 
@@ -394,7 +520,7 @@ const Profile = () => {
             </button>
           </div>
 
-          <div className='flex flex-wrap gap-2 pt-2'>
+          <div className='flex flex-wrap gap-2 pt-1'>
             {skills.map((skill, idx) => (
               <span 
                 key={idx} 

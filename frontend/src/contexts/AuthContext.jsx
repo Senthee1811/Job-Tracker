@@ -71,7 +71,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const data = await api.uploadCV(file);
       setUser(data.user);
-      return data.user;
+      return { ...data.user, extractedSkills: data.extractedSkills || [] };
     } catch (err) {
       throw err;
     }

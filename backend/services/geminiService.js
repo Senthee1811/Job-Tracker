@@ -94,10 +94,18 @@ const fallbackParseCv = (cvText) => {
     // Common IT skills detection
     const commonSkills = [
         "React", "Node.js", "JavaScript", "TypeScript", "Python", "Java",
-        "HTML", "CSS", "Tailwind CSS", "MongoDB", "PostgreSQL", "SQL",
-        "Express", "Git", "Docker", "AWS", "REST API", "Next.js", "GraphQL"
+        "HTML", "CSS", "Tailwind CSS", "MongoDB", "PostgreSQL", "SQL", "MySQL",
+        "Express", "Git", "Docker", "Kubernetes", "AWS", "Azure", "GCP",
+        "REST API", "Next.js", "GraphQL", "Redux", "Redis", "Kafka",
+        "Vue.js", "Angular", "C#", ".NET", "Spring Boot", "PHP", "Laravel",
+        "Django", "FastAPI", "Go", "Golang", "C++", "Linux", "CI/CD",
+        "Flutter", "React Native", "Microservices", "Agile", "Jira", "Figma"
     ];
-    const detectedSkills = commonSkills.filter(s => lower.includes(s.toLowerCase()));
+    const detectedSkills = commonSkills.filter(s => {
+        // Safe regex match with word boundaries where appropriate
+        const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(?:\\b|[^a-zA-Z0-9])${escaped}(?:\\b|[^a-zA-Z0-9])`, 'i').test(lower);
+    });
 
     return {
         skills: detectedSkills.length > 0 ? detectedSkills : ["Software Engineering", "Problem Solving"],

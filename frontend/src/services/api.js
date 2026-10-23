@@ -98,6 +98,15 @@ export const api = {
     return handleResponse(res);
   },
 
+  parseCvSkills: async (saveToProfile = true) => {
+    const res = await fetch(`${BASE_URL}/cv/parse-skills`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ saveToProfile }),
+    });
+    return handleResponse(res);
+  },
+
   tailorCv: async (jobId, customData = null, jobMeta = {}) => {
     const res = await fetch(`${BASE_URL}/cv/tailor`, {
       method: "POST",

@@ -5,8 +5,9 @@ import { Application } from "../models/Application.js";
 import { TailoredCV } from "../models/TailoredCV.js";
 import { uploadBufferToCloudinary, deleteCloudinaryAsset, isCloudinaryConfigured } from "../services/cloudinaryService.js";
 import { extractTextFromBuffer } from "../services/cvParserService.js";
-import { generateTailoredCv } from "../services/geminiService.js";
+import { generateTailoredCv, parseCvToProfile } from "../services/geminiService.js";
 import { generateAtsPdfBuffer } from "../services/pdfService.js";
+import { invalidateScoreCacheForCv } from "../services/scoringService.js";
 import path from "path";
 
 /**
@@ -81,10 +82,38 @@ export const uploadCVHandler = async (req, res) => {
         const latestCv = await CV.findOne({ userId }).sort({ version: -1 });
         const nextVersion = latestCv ? latestCv.version + 1 : 1;
 
-        // 5. Deactivate previous versions
+        // 5. Parse skills and structured credentials from extracted CV text
+        let structuredProfile = {
+            skills: user.skills || [],
+            yearsOfExperience: 0,
+            roles: [],
+            education: [],
+            projects: [],
+            certifications: []
+        };
+        let extractedSkills = [];
+
+        if (extractedText) {
+            try {
+                const parsed = await parseCvToProfile(extractedText);
+                if (parsed) {
+                    structuredProfile = parsed;
+                    extractedSkills = parsed.skills || [];
+                    // Merge parsed skills with existing user skills without duplicates
+                    user.skills = Array.from(new Set([...(user.skills || []), ...extractedSkills]));
+                    if (parsed.roles?.length > 0 && !user.preferredRole) {
+                        user.preferredRole = parsed.roles[0];
+                    }
+                }
+            } catch (parseErr) {
+                console.warn("Could not parse structured profile on upload:", parseErr.message);
+            }
+        }
+
+        // 6. Deactivate previous versions
         await CV.updateMany({ userId }, { isActive: false });
 
-        // 6. Create new CV document
+        // 7. Create new CV document
         const newCv = new CV({
             userId,
             publicId,
@@ -95,19 +124,13 @@ export const uploadCVHandler = async (req, res) => {
             version: nextVersion,
             isActive: true,
             extractedText,
-            structuredProfile: {
-                skills: user.skills || [],
-                yearsOfExperience: 0,
-                roles: [],
-                education: [],
-                projects: [],
-                certifications: []
-            }
+            structuredProfile
         });
 
         await newCv.save();
+        invalidateScoreCacheForCv(newCv._id.toString());
 
-        // 7. Update User document for backward compatibility
+        // 8. Update User document
         user.cvPath = secureUrl;
         user.cvName = originalName;
         if (extractedText) {
@@ -118,7 +141,9 @@ export const uploadCVHandler = async (req, res) => {
         return res.status(201).json({
             message: "CV uploaded and processed successfully",
             cv: newCv,
-            user
+            user,
+            extractedSkills,
+            structuredProfile
         });
     } catch (error) {
         console.error("CV Upload Controller Error:", error);
@@ -444,6 +469,59 @@ export const assistedApplyHandler = async (req, res) => {
     } catch (error) {
         console.error("Error in assisted apply:", error);
         return res.status(500).json({ message: error.message || "Failed to process assisted application" });
+    }
+};
+
+/**
+ * POST /api/cv/parse-skills
+ * Parses technical skills from the candidate's active CV (or provided resumeText).
+ * Can optionally auto-merge into user.skills.
+ */
+export const parseCvSkillsHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { saveToProfile = true } = req.body || {};
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const activeCv = await CV.findOne({ userId, isActive: true }).sort({ version: -1 });
+        const textToParse = activeCv?.extractedText || user.resumeText || "";
+
+        if (!textToParse.trim()) {
+            return res.status(400).json({
+                message: "No CV text available to parse. Please upload a CV first or paste your resume text."
+            });
+        }
+
+        const parsed = await parseCvToProfile(textToParse);
+        const extractedSkills = parsed.skills || [];
+
+        if (activeCv) {
+            activeCv.structuredProfile = parsed;
+            await activeCv.save();
+            invalidateScoreCacheForCv(activeCv._id.toString());
+        }
+
+        if (saveToProfile && extractedSkills.length > 0) {
+            user.skills = Array.from(new Set([...(user.skills || []), ...extractedSkills]));
+            if (parsed.roles?.length > 0 && !user.preferredRole) {
+                user.preferredRole = parsed.roles[0];
+            }
+            await user.save();
+        }
+
+        return res.status(200).json({
+            message: `Successfully parsed ${extractedSkills.length} skills from your CV!`,
+            extractedSkills,
+            structuredProfile: parsed,
+            user
+        });
+    } catch (error) {
+        console.error("Error parsing skills from CV:", error);
+        return res.status(500).json({ message: error.message || "Failed to parse skills from CV" });
     }
 };
 
