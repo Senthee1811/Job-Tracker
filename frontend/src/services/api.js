@@ -98,6 +98,32 @@ export const api = {
     return handleResponse(res);
   },
 
+  tailorCv: async (jobId, customData = null, jobMeta = {}) => {
+    const res = await fetch(`${BASE_URL}/cv/tailor`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ jobId, customData, ...jobMeta }),
+    });
+    return handleResponse(res);
+  },
+
+  getTailoredCv: async (jobId) => {
+    const res = await fetch(`${BASE_URL}/cv/tailored/${jobId}`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  applyAssisted: async (data) => {
+    const res = await fetch(`${BASE_URL}/cv/apply-assisted`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
   // AI Recommendations
   getRecommendations: async (page = 1, limit = 10) => {
     const res = await fetch(`${BASE_URL}/recommendations?page=${page}&limit=${limit}`, {

@@ -5,7 +5,10 @@ import {
     uploadCVHandler,
     getCvHistory,
     getActiveCv,
-    deleteCvVersion
+    deleteCvVersion,
+    tailorCvHandler,
+    getTailoredCvHandler,
+    assistedApplyHandler
 } from "../controllers/cvController.js";
 
 const storage = multer.memoryStorage();
@@ -22,3 +25,6 @@ cvRouter.post("/upload", authMiddleware, upload.single("cv"), uploadCVHandler);
 cvRouter.get("/history", authMiddleware, getCvHistory);
 cvRouter.get("/active", authMiddleware, getActiveCv);
 cvRouter.delete("/:id", authMiddleware, deleteCvVersion);
+cvRouter.post("/tailor", authMiddleware, tailorCvHandler);
+cvRouter.get("/tailored/:jobId", authMiddleware, getTailoredCvHandler);
+cvRouter.post("/apply-assisted", authMiddleware, assistedApplyHandler);

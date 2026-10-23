@@ -1,224 +1,201 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { IoCheckmarkCircleOutline, IoAlertCircleOutline, IoTerminalOutline } from 'react-icons/io5';
+import {
+  IoCheckmarkCircleOutline,
+  IoAlertCircleOutline,
+  IoOpenOutline,
+  IoMailOutline,
+  IoCloseOutline,
+  IoDocumentTextOutline,
+  IoInformationCircleOutline
+} from 'react-icons/io5';
 
-const AutoApplyModal = ({ isOpen, job, onClose, onApplySuccess }) => {
+const AutoApplyModal = ({ isOpen, job, tailoredCvId = null, onClose, onApplySuccess }) => {
   const { user } = useAuth();
-  const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState([]);
-  const [status, setStatus] = useState('idle'); // idle, running, success, error
-  const [errorMessage, setErrorMessage] = useState('');
-  const logEndRef = useRef(null);
-
-  // Run the simulation when the modal opens
-  useEffect(() => {
-    if (!isOpen || !job) return;
-    setStatus('running');
-    setProgress(0);
-    setLogs([]);
-    setErrorMessage('');
-
-    const runVerificationAndSimulation = async () => {
-      try {
-        setLogs((prev) => [...prev, `> Connecting to live board scraper to verify active status for: "${job.title}" at "${job.company}"...`]);
-        
-        // Execute dynamic live verification call
-        const verifyData = await api.getLiveJobs(job.title, job.location || 'Sri Lanka');
-        
-        setLogs((prev) => [
-          ...prev, 
-          `> Scraper verification response: Found ${verifyData.jobs?.length || 0} matching listings in the ${job.location || 'selected'} region.`,
-          `> Active listing verified on source channel: [${job.source.toUpperCase()}]`
-        ]);
-
-        const username = user ? `${user.firstname} ${user.lastname}` : 'Anonymous Candidate';
-        const skillsList = user && user.skills && user.skills.length > 0 
-          ? user.skills.join(', ') 
-          : 'React, JavaScript, HTML, CSS';
-        
-        const resumeTextLen = user && user.resumeText ? user.resumeText.length : 0;
-
-        const simulationSteps = [
-          {
-            progress: 20,
-            log: `> Initializing automated application driver sequence for: "${username}"`,
-            delay: 400
-          },
-          {
-            progress: 40,
-            log: `> Auto-matching user skills checklist: [${skillsList}]`,
-            delay: 900
-          },
-          {
-            progress: 60,
-            log: `> Injecting parsed CV credentials (CV resume text length: ${resumeTextLen} chars)...`,
-            delay: 1400
-          },
-          {
-            progress: 80,
-            log: `> Bypassing anti-bot CAPTCHA validation... Success!`,
-            delay: 1900
-          },
-          {
-            progress: 95,
-            log: `> Submitting form to ${job.company} portal... Application Accepted!`,
-            delay: 2400
-          },
-          {
-            progress: 100,
-            log: `> Recording tracked application details to MongoDB...`,
-            delay: 2900
-          }
-        ];
-
-        simulationSteps.forEach((step) => {
-          setTimeout(() => {
-            setLogs((prev) => [...prev, step.log]);
-            setProgress(step.progress);
-            if (step.progress === 100) {
-              saveApplicationToDB();
-            }
-          }, step.delay);
-        });
-
-      } catch (err) {
-        console.error(err);
-        setLogs((prev) => [...prev, `> [WARNING] Unable to verify job status: ${err.message}. Proceeding with offline application simulation fallback.`]);
-        
-        // Run simulation fallback after warning
-        setTimeout(() => {
-          setProgress(100);
-          saveApplicationToDB();
-        }, 1500);
-      }
-    };
-
-    runVerificationAndSimulation();
-  }, [job, user]);
-
-  // Scroll terminal logs automatically
-  useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
-
-  const saveApplicationToDB = async () => {
-    try {
-      const appPayload = {
-        company: job.company,
-        title: job.title,
-        requirements: job.requirements,
-        mode: job.mode,
-        salary: job.salary,
-        location: job.location,
-        status: 'applied',
-        category: job.category,
-        opportunity: job.source,
-        inTouchPerson: 'Recruiting Team',
-        link: job.link
-      };
-
-      await api.createApplication(appPayload);
-      setStatus('success');
-      if (onApplySuccess) onApplySuccess();
-    } catch (err) {
-      console.error(err);
-      setStatus('error');
-      setErrorMessage(err.message || 'Failed to save application to database');
-    }
-  };
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [notes, setNotes] = useState('');
+  const [appliedApplication, setAppliedApplication] = useState(null);
+  const [mailtoUrl, setMailtoUrl] = useState(null);
 
   if (!isOpen || !job) return null;
 
+  const handleConfirmApply = async () => {
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const jobId = job._id || job.id || job.dedupeHash;
+      const res = await api.applyAssisted({
+        jobId,
+        tailoredCvId,
+        notes: notes || `Applied to ${job.title} at ${job.company}`,
+        title: job.title,
+        company: job.company,
+        requirements: job.requirements,
+        salary: job.salary,
+        location: job.location,
+        mode: job.mode,
+        applyUrl: job.applyUrl || job.link
+      });
+
+      setAppliedApplication(res.application);
+      if (res.mailtoUrl) {
+        setMailtoUrl(res.mailtoUrl);
+      }
+
+      // Open external job application portal in a new tab
+      const targetUrl = res.applyUrl || job.applyUrl || job.link;
+      if (targetUrl && targetUrl.startsWith('http')) {
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      }
+
+      if (onApplySuccess) {
+        onApplySuccess(res.application);
+      }
+    } catch (err) {
+      console.error('Assisted apply error:', err);
+      setError(err.message || 'Failed to record assisted application');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <div className='fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none'>
-      <div className='bg-white w-full max-w-xl rounded-2xl border-2 border-black p-6 relative shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-6 animate-in fade-in duration-200'>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white border-2 border-neutral-900 rounded-2xl w-full max-w-xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
         
-        {/* Modal Header */}
-        <div className='border-b-2 border-neutral-100 pb-3 flex items-center gap-2'>
-          <IoTerminalOutline className='text-[#a3e635] text-2xl' />
-          <div>
-            <h3 className='text-lg font-extrabold text-neutral-900 uppercase'>
-              Auto-Apply Automation
-            </h3>
-            <p className='text-xxs md:text-xs text-neutral-500 font-medium'>
-              Applying to <span className='font-bold text-neutral-800'>{job.title}</span> at <span className='font-bold text-neutral-800'>{job.company}</span>
-            </p>
-          </div>
-        </div>
-
-        {/* Progress Display */}
-        <div className='flex flex-col gap-2'>
-          <div className='flex justify-between items-center text-xs md:text-sm font-bold text-neutral-700 uppercase'>
-            <span>{status === 'running' ? 'Automation In Progress...' : status === 'success' ? 'Application Complete!' : 'Error Occurred'}</span>
-            <span>{progress}%</span>
-          </div>
-          <div className='w-full bg-neutral-100 border border-neutral-300 h-4 rounded-full overflow-hidden p-0.5'>
-            <div 
-              className='bg-[#a3e635] h-full rounded-full transition-all duration-300 border-r border-neutral-400' 
-              style={{ width: `${progress}%` }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Terminal logs panel */}
-        <div className='bg-neutral-950 text-lime-400 font-mono text-xxs md:text-xs p-4 rounded-xl h-60 overflow-y-auto border-2 border-neutral-800 shadow-inner flex flex-col gap-1.5 scrollbar-thin scrollbar-thumb-neutral-800'>
-          {logs.map((log, index) => (
-            <div key={index} className='leading-relaxed break-words'>
-              {log}
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b-2 border-neutral-900 bg-neutral-50">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-lime-100 border border-neutral-900 rounded-xl text-neutral-900">
+              <IoOpenOutline className="w-5 h-5 text-lime-700" />
             </div>
-          ))}
-          {status === 'running' && (
-            <div className='flex items-center gap-1.5 animate-pulse text-lime-400/70'>
-              <span>&gt; Running automated driver...</span>
-              <span className='w-1.5 h-3 bg-lime-400 inline-block'></span>
+            <div>
+              <h3 className="font-extrabold text-neutral-900 text-base leading-tight">
+                Assisted Job Application
+              </h3>
+              <p className="text-xs text-neutral-500 font-medium">
+                {job.title} • {job.company}
+              </p>
             </div>
-          )}
-          {status === 'success' && (
-            <div className='text-emerald-400 font-bold mt-2'>
-              SUCCESS: Job application tracked successfully. Form submission completed.
-            </div>
-          )}
-          {status === 'error' && (
-            <div className='text-rose-400 font-bold mt-2'>
-              ERROR: {errorMessage}
-            </div>
-          )}
-          <div ref={logEndRef} />
-        </div>
-
-        {/* Success/Error screen overlays */}
-        {status === 'success' && (
-          <div className='flex flex-col items-center justify-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center'>
-            <IoCheckmarkCircleOutline className='text-emerald-600' size={32} />
-            <h4 className='text-sm font-bold text-emerald-800 uppercase'>Application Submitted</h4>
-            <p className='text-xxs md:text-xs text-emerald-700 leading-normal max-w-sm'>
-              This job has been automatically logged into your <strong>Tracker</strong> tab with status <strong>Applied</strong>.
-            </p>
           </div>
-        )}
-
-        {status === 'error' && (
-          <div className='flex flex-col items-center justify-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-center'>
-            <IoAlertCircleOutline className='text-rose-600' size={32} />
-            <h4 className='text-sm font-bold text-rose-800 uppercase'>Process Failed</h4>
-            <p className='text-xxs md:text-xs text-rose-700 leading-normal max-w-sm'>
-              We couldn't connect or update application status. Please check backend connection.
-            </p>
-          </div>
-        )}
-
-        {/* Modal Action buttons */}
-        <div className='flex justify-end border-t border-neutral-100 pt-4'>
           <button
             onClick={onClose}
-            disabled={status === 'running'}
-            className='bg-[#a3e635] text-neutral-900 font-bold text-xs md:text-sm px-6 py-2 border-2 border-neutral-900 rounded-lg hover:bg-lime-400 transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
+            className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-200 rounded-lg transition-colors cursor-pointer"
           >
-            {status === 'running' ? 'Running Apply...' : 'Close Window'}
+            <IoCloseOutline className="w-6 h-6" />
           </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 space-y-5">
+          {error && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+              <IoAlertCircleOutline className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {appliedApplication ? (
+            <div className="py-6 text-center space-y-4">
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 border-2 border-neutral-900 rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                <IoCheckmarkCircleOutline className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-extrabold text-neutral-900 text-base">
+                  Application Logged to Your Tracker!
+                </h4>
+                <p className="text-xs text-neutral-600 max-w-sm mx-auto">
+                  Status set to <strong>"Applied"</strong>. The target vacancy portal has been opened in a new tab for you to submit your final credentials.
+                </p>
+              </div>
+
+              {mailtoUrl && (
+                <div className="pt-2">
+                  <a
+                    href={mailtoUrl}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-neutral-900 text-white font-extrabold rounded-xl text-xs hover:bg-neutral-800 transition-all cursor-pointer shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
+                  >
+                    <IoMailOutline className="w-4 h-4 text-lime-400" />
+                    <span>Send Pre-filled Cover Email</span>
+                  </a>
+                </div>
+              )}
+
+              <button
+                onClick={onClose}
+                className="mt-4 px-6 py-2 bg-neutral-100 text-neutral-800 font-bold rounded-xl text-xs hover:bg-neutral-200 transition-all cursor-pointer border border-neutral-300"
+              >
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Assisted Apply Information Notice */}
+              <div className="p-3.5 bg-neutral-50 border border-neutral-200 rounded-xl flex items-start gap-3 text-xs text-neutral-600 leading-relaxed font-sans">
+                <IoInformationCircleOutline className="w-5 h-5 text-neutral-800 flex-shrink-0 mt-0.5" />
+                <span>
+                  Third-party job portals require candidate sign-in. Job Tracker streamlines this by generating your tailored resume, pre-filling your pipeline record, and launching the official application portal directly.
+                </span>
+              </div>
+
+              {/* Target Job Summary */}
+              <div className="p-4 border-2 border-neutral-900 rounded-xl space-y-2 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] text-xs">
+                <div className="flex justify-between items-center text-neutral-500 font-mono text-[11px]">
+                  <span>Source: {job.source?.toUpperCase() || 'EXTERNAL'}</span>
+                  <span>{job.mode || 'hybrid'}</span>
+                </div>
+                <div className="font-extrabold text-neutral-900 text-sm">
+                  {job.title}
+                </div>
+                <div className="text-neutral-600">
+                  {job.company} • {job.location || 'Sri Lanka'}
+                </div>
+                {tailoredCvId && (
+                  <div className="flex items-center gap-1.5 text-lime-700 font-bold pt-1">
+                    <IoDocumentTextOutline className="w-4 h-4" />
+                    <span>Tailored ATS Resume will be linked</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes Input */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-neutral-700">
+                  Application Notes / Follow-up Strategy
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  className="w-full text-xs p-3 border-2 border-neutral-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-400 font-sans"
+                  placeholder="e.g. Applied via official recruiter form; follow up with hiring manager next Tuesday."
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2.5 text-neutral-600 font-bold text-xs hover:text-neutral-900 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmApply}
+                  disabled={submitting}
+                  className="px-5 py-2.5 bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-xl hover:bg-lime-400 transition-all text-xs cursor-pointer shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:opacity-50 flex items-center gap-2"
+                >
+                  {submitting ? 'Recording Application...' : 'Open Portal & Track Application'}
+                  <IoOpenOutline className="w-4 h-4" />
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
       </div>

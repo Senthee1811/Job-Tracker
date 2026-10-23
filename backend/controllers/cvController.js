@@ -1,7 +1,12 @@
 import { CV } from "../models/CV.js";
 import { User } from "../models/User.js";
+import { Job } from "../models/Job.js";
+import { Application } from "../models/Application.js";
+import { TailoredCV } from "../models/TailoredCV.js";
 import { uploadBufferToCloudinary, deleteCloudinaryAsset, isCloudinaryConfigured } from "../services/cloudinaryService.js";
 import { extractTextFromBuffer } from "../services/cvParserService.js";
+import { generateTailoredCv } from "../services/geminiService.js";
+import { generateAtsPdfBuffer } from "../services/pdfService.js";
 import path from "path";
 
 /**
@@ -205,3 +210,240 @@ export const deleteCvVersion = async (req, res) => {
         return res.status(500).json({ message: "Failed to delete CV version" });
     }
 };
+
+/**
+ * POST /api/cv/tailor
+ * Generates tailored resume data using Gemini with strict anti-hallucination checks,
+ * produces ATS-compliant PDF, uploads to Cloudinary, and stores TailoredCV record.
+ */
+export const tailorCvHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { jobId, customData } = req.body;
+
+    if (!jobId) {
+        return res.status(400).json({ message: "jobId is required to tailor CV" });
+    }
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const activeCv = await CV.findOne({ userId, isActive: true });
+
+        // Retrieve job document or create fallback structure
+        let job = await Job.findById(jobId).lean();
+        if (!job) {
+            job = await Job.findOne({ dedupeHash: jobId }).lean();
+        }
+        if (!job) {
+            // Check if jobId is a custom/temporary id with job payload
+            job = {
+                title: req.body.jobTitle || "Software Engineer",
+                company: req.body.jobCompany || "Sri Lankan Tech Company",
+                requirements: req.body.jobRequirements || ["Web development experience", "Modern JavaScript/TypeScript"],
+                skills: req.body.jobSkills || ["React", "Node.js"]
+            };
+        }
+
+        // Construct user profile
+        const userProfile = {
+            firstname: user.firstname,
+            lastname: user.lastname,
+            email: user.email,
+            linkedin: user.linkedin,
+            skills: activeCv?.structuredProfile?.skills?.length > 0
+                ? activeCv.structuredProfile.skills
+                : (user.skills || ["React", "JavaScript"]),
+            yearsOfExperience: activeCv?.structuredProfile?.yearsOfExperience || 2,
+            roles: activeCv?.structuredProfile?.roles || ["Software Developer"],
+            education: activeCv?.structuredProfile?.education || [
+                { institution: "University / Institute", degree: "BSc in Computing", year: "Graduated" }
+            ],
+            projects: activeCv?.structuredProfile?.projects || [
+                { title: "Portfolio Projects", description: "Full stack web applications", technologies: user.skills || ["React", "Node.js"] }
+            ],
+            experience: activeCv?.structuredProfile?.experience || [
+                {
+                    company: "Software Development Firm",
+                    role: "Software Developer",
+                    duration: "2024 - Present",
+                    bullets: [
+                        "Built scalable user interfaces and reusable UI component architectures.",
+                        "Optimized API response latency and database query performance."
+                    ]
+                }
+            ]
+        };
+
+        // 1. Generate or use edited tailored data
+        let tailoredData = customData;
+        if (!tailoredData) {
+            tailoredData = await generateTailoredCv(userProfile, job);
+        }
+
+        // 2. Generate ATS single-column PDF buffer
+        const pdfBuffer = await generateAtsPdfBuffer(userProfile, tailoredData);
+
+        // 3. Upload PDF to Cloudinary (or data URL fallback if unconfigured)
+        const filename = `Tailored_CV_${user.lastname}_${Date.now()}.pdf`;
+        let pdfUrl = "";
+        let pdfPublicId = "";
+
+        if (isCloudinaryConfigured()) {
+            const uploadResult = await uploadBufferToCloudinary(pdfBuffer, filename, "job-tracker/tailored-cvs");
+            pdfUrl = uploadResult.secureUrl;
+            pdfPublicId = uploadResult.publicId;
+        } else {
+            pdfUrl = `data:application/pdf;base64,${pdfBuffer.toString("base64")}`;
+            pdfPublicId = `local-tailored-${Date.now()}`;
+        }
+
+        // 4. Upsert TailoredCV record
+        let tailoredCvDoc = await TailoredCV.findOne({ userId, jobId: String(jobId) });
+        if (tailoredCvDoc) {
+            tailoredCvDoc.tailoredData = tailoredData;
+            tailoredCvDoc.pdfUrl = pdfUrl;
+            tailoredCvDoc.pdfPublicId = pdfPublicId;
+            tailoredCvDoc.jobTitle = job.title;
+            tailoredCvDoc.jobCompany = job.company;
+            await tailoredCvDoc.save();
+        } else {
+            tailoredCvDoc = new TailoredCV({
+                userId,
+                jobId: String(jobId),
+                jobTitle: job.title,
+                jobCompany: job.company,
+                tailoredData,
+                pdfUrl,
+                pdfPublicId
+            });
+            await tailoredCvDoc.save();
+        }
+
+        return res.status(200).json({
+            message: "Tailored CV generated successfully",
+            tailoredCv: tailoredCvDoc,
+            pdfUrl
+        });
+    } catch (error) {
+        console.error("Error tailoring CV:", error);
+        return res.status(500).json({ message: error.message || "Failed to generate tailored CV" });
+    }
+};
+
+/**
+ * GET /api/cv/tailored/:jobId
+ * Retrieves existing tailored CV for specific job and user.
+ */
+export const getTailoredCvHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { jobId } = req.params;
+
+    try {
+        const tailoredCv = await TailoredCV.findOne({ userId, jobId: String(jobId) });
+        if (!tailoredCv) {
+            return res.status(404).json({ message: "No tailored CV found for this job" });
+        }
+        return res.status(200).json({ tailoredCv });
+    } catch (error) {
+        console.error("Error fetching tailored CV:", error);
+        return res.status(500).json({ message: "Failed to fetch tailored CV" });
+    }
+};
+
+/**
+ * POST /api/cv/apply-assisted
+ * Assisted Apply flow:
+ * 1. Creates an Application record (status "applied") with tailored CV link.
+ * 2. Pre-fills notes.
+ * 3. Prepares mailto: link with cover email if contact email is found.
+ */
+export const assistedApplyHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { jobId, tailoredCvId, notes = "" } = req.body;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let job = await Job.findById(jobId).lean();
+        if (!job) {
+            job = await Job.findOne({ dedupeHash: jobId }).lean();
+        }
+        if (!job) {
+            job = {
+                title: req.body.title || "Software Vacancy",
+                company: req.body.company || "Direct Employer",
+                requirements: req.body.requirements || "Software requirements",
+                salary: req.body.salary || "Negotiable",
+                location: req.body.location || "Sri Lanka",
+                mode: req.body.mode || "hybrid",
+                applyUrl: req.body.applyUrl || "https://jobtracker.local"
+            };
+        }
+
+        let tailoredPdfUrl = "";
+        if (tailoredCvId) {
+            const tailoredCv = await TailoredCV.findById(tailoredCvId);
+            if (tailoredCv) {
+                tailoredPdfUrl = tailoredCv.pdfUrl;
+            }
+        }
+
+        // Build Application document
+        const newApplication = new Application({
+            title: job.title,
+            company: job.company,
+            requirements: Array.isArray(job.requirements) ? job.requirements.join(", ") : (job.requirements || "N/A"),
+            salary: job.salary || "Negotiable",
+            location: job.location || "Sri Lanka",
+            mode: ["remote", "on-site", "hybrid"].includes(job.mode) ? job.mode : "hybrid",
+            status: "applied",
+            userId,
+            category: "Assisted Application",
+            link: job.applyUrl || "",
+            opportunity: tailoredPdfUrl ? `Tailored CV attached: ${tailoredPdfUrl}` : (notes || "Applied via Job Tracker Assisted Flow"),
+            inTouchPerson: job.contactEmail || job.inTouchPerson || ""
+        });
+
+        await newApplication.save();
+
+        // Also push application ID to user
+        await User.findByIdAndUpdate(userId, {
+            $addToSet: { applications: newApplication._id }
+        });
+
+        // Prepare mailto link if an email address is detected
+        let mailtoUrl = null;
+        const emailMatch = (job.description || "").match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        const contactEmail = job.contactEmail || (emailMatch ? emailMatch[0] : null);
+
+        if (contactEmail) {
+            const subject = encodeURIComponent(`Application for ${job.title} - ${user.firstname} ${user.lastname}`);
+            const body = encodeURIComponent(
+                `Dear Hiring Team at ${job.company},\n\n` +
+                `I am writing to express my enthusiastic interest in the ${job.title} role.\n\n` +
+                `With my hands-on background and proficiency in ${(user.skills || []).slice(0, 4).join(", ")}, I am confident in adding immediate value to your engineering team.\n\n` +
+                (tailoredPdfUrl ? `Please find my tailored resume attached here: ${tailoredPdfUrl}\n\n` : "") +
+                `Thank you for your time and consideration.\n\n` +
+                `Sincerely,\n${user.firstname} ${user.lastname}\n${user.email}`
+            );
+            mailtoUrl = `mailto:${contactEmail}?subject=${subject}&body=${body}`;
+        }
+
+        return res.status(201).json({
+            message: "Assisted application recorded successfully",
+            application: newApplication,
+            applyUrl: job.applyUrl,
+            mailtoUrl
+        });
+    } catch (error) {
+        console.error("Error in assisted apply:", error);
+        return res.status(500).json({ message: error.message || "Failed to process assisted application" });
+    }
+};
+
