@@ -7,20 +7,27 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/**/*.test.js",
+    "migrate:uploads": "node scripts/migrateUploadsToCloudinary.js",
     "dev": "nodemon index.js",
     "start": "node index.js"
   },
   "dependencies": {
+    "@google/genai": "^2.31.0",
     "bcrypt": "^6.0.0",
     "cheerio": "^1.2.0",
+    "cloudinary": "^2.11.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
     "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.13.0",
     "mongodb": "^7.1.0",
     "mongoose": "^9.2.3",
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "node-cron": "^4.6.0",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

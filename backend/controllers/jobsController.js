@@ -1,202 +1,111 @@
-import * as cheerio from 'cheerio';
+import { Job } from "../models/Job.js";
+import { executeScrapeCycle } from "../services/schedulerService.js";
+import { getScrapersHealth } from "../services/scrapers/index.js";
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+/**
+ * GET /api/jobs
+ * Returns paginated, filtered Sri Lankan IT vacancies from the Job collection.
+ * Includes "isNewToday" badge indicator.
+ */
+export const getVacancies = async (req, res) => {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 12));
+    const { role, location, source, jobType, q } = req.query;
 
-const fetchHTML = async (url) => {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': USER_AGENT
-    },
-    signal: AbortSignal.timeout(6000)
-  });
-  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-  return res.text();
-};
+    try {
+        const query = {};
 
-const scrapeXpressJobs = async (query, region) => {
-  try {
-    const url = `https://xpress.jobs/jobs?q=${encodeURIComponent(query)}`;
-    const html = await fetchHTML(url);
-    const $ = cheerio.load(html);
-    const jobs = [];
-    
-    // Look for listing cards in XpressJobs
-    const cards = $('.job-card, .job-list-card, div[class*="job-card"], div[class*="job_card"]');
-    cards.each((i, el) => {
-      if (jobs.length >= 6) return;
-      const card = $(el);
-      
-      const title = card.find('.job-title, h3, h2, a[class*="title"]').first().text().trim();
-      const company = card.find('.company-name, .company, div[class*="company"]').first().text().trim();
-      const location = card.find('.location, .job-location, div[class*="location"]').first().text().trim() || 'Sri Lanka';
-      let link = card.find('a[href*="/jobs/"], a').first().attr('href') || '';
-      
-      if (link && !link.startsWith('http')) {
-        link = `https://xpress.jobs${link}`;
-      }
-
-      if (title && company) {
-        jobs.push({
-          id: `xpressjobs-${i}-${Date.now()}`,
-          company,
-          title,
-          category: 'Software Engineering',
-          source: 'xpressjobs',
-          location: location || 'Sri Lanka',
-          mode: 'hybrid',
-          salary: 'Negotiable',
-          requirements: `Apply directly on XpressJobs for ${title} vacancy details.`,
-          link
-        });
-      }
-    });
-    
-    return jobs;
-  } catch (err) {
-    console.error('XpressJobs scrape error:', err.message);
-    return [];
-  }
-};
-
-const scrapeRoosterJobs = async (query, region) => {
-  try {
-    const url = `https://rooster.jobs/jobs?q=${encodeURIComponent(query)}`;
-    const html = await fetchHTML(url);
-    const $ = cheerio.load(html);
-    const jobs = [];
-    
-    const cards = $('.job-card, .card, div[class*="job-card"], a[href*="/jobs/"]');
-    cards.each((i, el) => {
-      if (jobs.length >= 6) return;
-      const card = $(el);
-      
-      const title = card.find('.job-title, h3, h2, a[class*="title"], div[class*="title"]').first().text().trim();
-      const company = card.find('.company-name, .company, .employer').first().text().trim();
-      const location = card.find('.location, .job-location').first().text().trim() || 'Sri Lanka';
-      let link = card.attr('href') || card.find('a').first().attr('href') || '';
-      
-      if (link && !link.startsWith('http')) {
-        link = `https://rooster.jobs${link}`;
-      }
-
-      if (title && company) {
-        jobs.push({
-          id: `rooster-${i}-${Date.now()}`,
-          company,
-          title,
-          category: 'Software Development',
-          source: 'rooster',
-          location: location || 'Sri Lanka',
-          mode: 'hybrid',
-          salary: 'Negotiable',
-          requirements: `Apply directly on Rooster.jobs for ${title} vacancy details.`,
-          link
-        });
-      }
-    });
-    
-    return jobs;
-  } catch (err) {
-    console.error('Rooster scrape error:', err.message);
-    return [];
-  }
-};
-
-const scrapeLinkedInJobs = async (query, region) => {
-  try {
-    let locParam = region || 'Sri Lanka';
-    const url = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(query)}&location=${encodeURIComponent(locParam)}`;
-    const html = await fetchHTML(url);
-    const $ = cheerio.load(html);
-    const jobs = [];
-    
-    $('li').each((i, el) => {
-      if (jobs.length >= 6) return;
-      const card = $(el);
-      
-      const title = card.find('.base-search-card__title').first().text().trim();
-      const company = card.find('.base-search-card__subtitle, .hidden-nested-link').first().text().trim();
-      const location = card.find('.job-search-card__location').first().text().trim() || locParam;
-      let link = card.find('a.base-card__full-link').first().attr('href') || '';
-      
-      if (link && link.includes('?')) {
-        link = link.split('?')[0];
-      }
-
-      if (title && company) {
-        jobs.push({
-          id: `linkedin-${i}-${Date.now()}`,
-          company,
-          title,
-          category: 'Software Engineering',
-          source: 'linkedin',
-          location,
-          mode: 'remote',
-          salary: 'Market Rate',
-          requirements: `Apply directly on LinkedIn Guest Jobs portal for ${title} vacancy details.`,
-          link
-        });
-      }
-    });
-    
-    return jobs;
-  } catch (err) {
-    console.error('LinkedIn scrape error:', err.message);
-    return [];
-  }
-};
-
-export const getLiveJobs = async (req, res) => {
-  const query = req.query.query || 'React';
-  const region = req.query.region || 'Sri Lanka';
-  
-  try {
-    const results = await Promise.allSettled([
-      scrapeLinkedInJobs(query, region),
-      scrapeXpressJobs(query, region),
-      scrapeRoosterJobs(query, region)
-    ]);
-    
-    let combinedJobs = [];
-    results.forEach((res) => {
-      if (res.status === 'fulfilled') {
-        combinedJobs = [...combinedJobs, ...res.value];
-      }
-    });
-    
-    // Backup fallback data
-    if (combinedJobs.length === 0) {
-      combinedJobs = [
-        {
-          id: `backup-1-${Date.now()}`,
-          company: 'Virtusa',
-          title: `${query} Developer`,
-          category: 'Software Engineering',
-          source: 'linkedin',
-          location: region,
-          mode: 'hybrid',
-          salary: 'Negotiable',
-          requirements: 'Experience with web development frameworks and client integrations.',
-          link: 'https://www.virtusa.com/careers'
-        },
-        {
-          id: `backup-2-${Date.now()}`,
-          company: 'WSO2',
-          title: `Associate ${query} Engineer`,
-          category: 'Software Engineering',
-          source: 'xpressjobs',
-          location: region,
-          mode: 'remote',
-          salary: 'Negotiable',
-          requirements: 'Familiarity with cloud integrations, APIs, and modern frontends.',
-          link: 'https://wso2.com/careers'
+        // Keyword / role search
+        const searchTerm = role || q;
+        if (searchTerm) {
+            query.$or = [
+                { title: { $regex: searchTerm, $options: "i" } },
+                { description: { $regex: searchTerm, $options: "i" } },
+                { skills: { $in: [new RegExp(searchTerm, "i")] } },
+                { company: { $regex: searchTerm, $options: "i" } }
+            ];
         }
-      ];
+
+        // Location filter
+        if (location && location !== "all") {
+            query.location = { $regex: location, $options: "i" };
+        }
+
+        // Source filter
+        if (source && source !== "all") {
+            query.source = source.toLowerCase();
+        }
+
+        // Job type filter
+        if (jobType && jobType !== "all") {
+            query.jobType = { $regex: jobType, $options: "i" };
+        }
+
+        const total = await Job.countDocuments(query);
+        const rawJobs = await Job.find(query)
+            .sort({ postedAt: -1, scrapedAt: -1 })
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .lean();
+
+        // Calculate "New Today" cutoff (start of current day UTC)
+        const startOfToday = new Date();
+        startOfToday.setUTCHours(0, 0, 0, 0);
+
+        const jobs = rawJobs.map((j) => {
+            const jobDate = j.postedAt || j.scrapedAt || j.createdAt;
+            const isNewToday = jobDate && new Date(jobDate) >= startOfToday;
+            return {
+                ...j,
+                id: j._id.toString(),
+                isNewToday: !!isNewToday
+            };
+        });
+
+        return res.status(200).json({
+            jobs,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit)
+        });
+    } catch (error) {
+        console.error("Error fetching vacancies:", error);
+        return res.status(500).json({ message: "Failed to fetch vacancy listings" });
     }
-    
-    return res.status(200).json({ jobs: combinedJobs });
-  } catch (error) {
-    console.error('Search jobs controller error:', error);
-    return res.status(500).json({ message: 'Internal server error fetching job board vacancy data' });
-  }
+};
+
+/**
+ * POST /api/jobs/refresh
+ * Protected endpoint to manually trigger a scraper cycle across all registered boards.
+ */
+export const refreshVacancies = async (req, res) => {
+    try {
+        const result = await executeScrapeCycle();
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error("Error triggering manual scrape refresh:", error);
+        return res.status(500).json({ message: "Failed to execute manual scraper refresh" });
+    }
+};
+
+/**
+ * GET /api/jobs/sources/health
+ * Returns health status and latest run metrics per scraper adapter.
+ */
+export const getSourcesHealth = async (req, res) => {
+    try {
+        const health = await getScrapersHealth();
+        return res.status(200).json({ sources: health });
+    } catch (error) {
+        console.error("Error fetching scraper health:", error);
+        return res.status(500).json({ message: "Failed to fetch scraper health metrics" });
+    }
+};
+
+/**
+ * Legacy GET /api/jobs/search for backward compatibility.
+ */
+export const getLiveJobs = async (req, res) => {
+    req.query.role = req.query.query || req.query.role;
+    return getVacancies(req, res);
 };

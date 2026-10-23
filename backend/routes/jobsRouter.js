@@ -1,7 +1,10 @@
-import express from 'express';
-import { getLiveJobs } from '../controllers/jobsController.js';
-import { authMiddleware } from '../middleware/authMiddleware.js';
+import express from "express";
+import { getVacancies, refreshVacancies, getSourcesHealth, getLiveJobs } from "../controllers/jobsController.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 
 export const jobsRouter = express.Router();
 
-jobsRouter.get('/search', authMiddleware, getLiveJobs);
+jobsRouter.get("/", authMiddleware, getVacancies);
+jobsRouter.get("/search", authMiddleware, getLiveJobs);
+jobsRouter.post("/refresh", authMiddleware, refreshVacancies);
+jobsRouter.get("/sources/health", authMiddleware, getSourcesHealth);

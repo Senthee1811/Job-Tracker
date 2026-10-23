@@ -66,10 +66,51 @@ export const api = {
       headers["Authorization"] = `Bearer ${token}`;
     }
     
-    const res = await fetch(`${BASE_URL}/users/upload-cv`, {
+    const res = await fetch(`${BASE_URL}/cv/upload`, {
       method: "POST",
       headers: headers,
       body: formData,
+    });
+    return handleResponse(res);
+  },
+
+  getCvHistory: async () => {
+    const res = await fetch(`${BASE_URL}/cv/history`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  getActiveCv: async () => {
+    const res = await fetch(`${BASE_URL}/cv/active`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  deleteCvVersion: async (id) => {
+    const res = await fetch(`${BASE_URL}/cv/${id}`, {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  // AI Recommendations
+  getRecommendations: async (page = 1, limit = 10) => {
+    const res = await fetch(`${BASE_URL}/recommendations?page=${page}&limit=${limit}`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  recomputeRecommendations: async () => {
+    const res = await fetch(`${BASE_URL}/recommendations/recompute`, {
+      method: "POST",
+      headers: getHeaders(),
     });
     return handleResponse(res);
   },
@@ -104,6 +145,39 @@ export const api = {
   deleteApplication: async (id) => {
     const res = await fetch(`${BASE_URL}/applications/delete/${id}`, {
       method: "DELETE",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  // Vacancy Scraper Endpoints
+  getVacancies: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.append("page", params.page);
+    if (params.limit) query.append("limit", params.limit);
+    if (params.role) query.append("role", params.role);
+    if (params.location && params.location !== "all") query.append("location", params.location);
+    if (params.source && params.source !== "all") query.append("source", params.source);
+    if (params.jobType && params.jobType !== "all") query.append("jobType", params.jobType);
+
+    const res = await fetch(`${BASE_URL}/jobs?${query.toString()}`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  refreshVacancies: async () => {
+    const res = await fetch(`${BASE_URL}/jobs/refresh`, {
+      method: "POST",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  getSourcesHealth: async () => {
+    const res = await fetch(`${BASE_URL}/jobs/sources/health`, {
+      method: "GET",
       headers: getHeaders(),
     });
     return handleResponse(res);
