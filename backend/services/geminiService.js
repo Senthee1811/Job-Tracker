@@ -12,26 +12,60 @@ const getGeminiClient = () => {
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || "gemini-1.5-flash";
 const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || "text-embedding-004";
 
+// Circuit breaker state to avoid stalling requests when Gemini endpoint is unreachable
+let isCircuitOpen = false;
+let circuitOpenedAt = 0;
+const CIRCUIT_COOLDOWN_MS = 60000; // 1 minute cooldown
+
+export const isGeminiAvailable = () => {
+    if (!process.env.GEMINI_API_KEY) return false;
+    if (isCircuitOpen) {
+        if (Date.now() - circuitOpenedAt > CIRCUIT_COOLDOWN_MS) {
+            isCircuitOpen = false; // half-open, allow trial
+            return true;
+        }
+        return false;
+    }
+    return true;
+};
+
 /**
  * Executes a Gemini API call with timeout and exponential backoff retry.
  */
-const executeWithRetry = async (fn, maxRetries = 2, initialDelay = 1000) => {
+const executeWithRetry = async (fn, maxRetries = 1, initialDelay = 800) => {
     let delay = initialDelay;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            return await Promise.race([
+            const result = await Promise.race([
                 fn(),
                 new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error("Gemini API call timed out (15s)")), 15000)
+                    setTimeout(() => reject(new Error("Gemini API call timed out (6s)")), 6000)
                 )
             ]);
+            // If succeeded, reset circuit breaker
+            isCircuitOpen = false;
+            return result;
         } catch (error) {
+            const isConnectionError =
+                error.cause?.code === "UND_ERR_CONNECT_TIMEOUT" ||
+                error.code === "UND_ERR_CONNECT_TIMEOUT" ||
+                error.code === "ECONNREFUSED" ||
+                error.code === "ENOTFOUND" ||
+                error.message?.includes("fetch failed") ||
+                error.message?.includes("Connect Timeout");
+
+            if (isConnectionError) {
+                // Trip circuit breaker immediately so subsequent calls don't hang
+                isCircuitOpen = true;
+                circuitOpenedAt = Date.now();
+                throw error;
+            }
+
             const isLastAttempt = attempt === maxRetries;
             const isTransient =
                 error.message?.includes("timed out") ||
                 error.message?.includes("429") ||
-                error.message?.includes("503") ||
-                error.message?.includes("fetch failed");
+                error.message?.includes("503");
 
             if (isLastAttempt || !isTransient) {
                 throw error;
@@ -85,6 +119,10 @@ const fallbackParseCv = (cvText) => {
 export const parseCvToProfile = async (cvText) => {
     if (!cvText || typeof cvText !== "string") {
         return fallbackParseCv("");
+    }
+
+    if (!isGeminiAvailable()) {
+        return fallbackParseCv(cvText);
     }
 
     const prompt = `
@@ -147,6 +185,10 @@ ${cvText.slice(0, 8000)}
  */
 export const embedTexts = async (texts = []) => {
     if (!Array.isArray(texts) || texts.length === 0) return [];
+
+    if (!isGeminiAvailable()) {
+        return texts.map(t => generateDeterministicVector(t, 64));
+    }
 
     try {
         const client = getGeminiClient();
@@ -213,6 +255,10 @@ export const explainMatch = async (userProfile, job) => {
             ? `Solid candidate match with strong overlap in ${matched.slice(0, 2).join(" and ")}.`
             : `Promising candidate with foundation in ${userSkills.slice(0, 2).join(", ") || "relevant technologies"}.`
     };
+
+    if (!isGeminiAvailable()) {
+        return fallbackExplanation;
+    }
 
     const prompt = `
 You are a technical recruiter. Compare the candidate's profile against the job requirements and output a match explanation JSON.
@@ -321,6 +367,10 @@ export const generateTailoredCv = async (userProfile, job) => {
         education: userProfile.education || [],
         projects: userProfile.projects || []
     };
+
+    if (!isGeminiAvailable()) {
+        return fallbackTailored;
+    }
 
     const prompt = `
 You are an expert career consultant. Tailor the candidate's existing resume strictly for the following job opening.

@@ -1,35 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  IoHomeOutline, 
-  IoBarChartOutline, 
-  IoListOutline, 
-  IoBookmarkOutline, 
-  IoSettingsOutline,
+import ScoreRing from './ScoreRing';
+import { SkeletonCard, SkeletonRecommendation } from './SkeletonLoader';
+import TailorCvModal from './TailorCvModal';
+import AutoApplyModal from './AutoApplyModal';
+import Toast from './Toast';
+import {
+  IoSparklesOutline,
+  IoSyncOutline,
   IoSearchOutline,
+  IoFilterOutline,
+  IoLocationOutline,
+  IoBriefcaseOutline,
+  IoCalendarOutline,
+  IoBookmarkOutline,
+  IoBookmark,
+  IoChevronDownOutline,
+  IoChevronUpOutline,
   IoAddOutline,
-  IoNotificationsOutline,
-  IoEllipsisHorizontalOutline,
-  IoCheckmarkCircleOutline,
-  IoLogoGoogle,
-  IoLogoLinkedin,
   IoTimeOutline,
-  IoShieldCheckmarkOutline,
   IoTrashOutline,
-  IoCloseOutline
+  IoCheckmarkCircleOutline,
+  IoFlameOutline,
+  IoArrowForwardOutline,
+  IoTrendingUpOutline,
+  IoDocumentTextOutline
 } from 'react-icons/io5';
 
 const Dashboard = ({ setActiveTab }) => {
   const { user } = useAuth();
+
+  // Application Pipeline Stats
   const [applications, setApplications] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [statsLoading, setStatsLoading] = useState(true);
 
-  // Manual job modal trigger
-  const [showAddModal, setShowAddModal] = useState(false);
+  // Recommendations state
+  const [recommendations, setRecommendations] = useState([]);
+  const [recsLoading, setRecsLoading] = useState(true);
+  const [expandedRecId, setExpandedRecId] = useState(null);
 
-  // Reminders and form states
+  // Sri Lanka Vacancies state
+  const [vacancies, setVacancies] = useState([]);
+  const [vacanciesLoading, setVacanciesLoading] = useState(true);
+  const [vacancyPage, setVacancyPage] = useState(1);
+  const [vacancyTotalPages, setVacancyTotalPages] = useState(1);
+  const [selectedSource, setSelectedSource] = useState('all');
+  const [searchRole, setSearchRole] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState('all');
+
+  // Reminders state
   const [reminders, setReminders] = useState([]);
   const [showAddReminderForm, setShowAddReminderForm] = useState(false);
   const [reminderTitle, setReminderTitle] = useState('');
@@ -38,6 +58,47 @@ const Dashboard = ({ setActiveTab }) => {
   const [reminderDesc, setReminderDesc] = useState('');
   const [reminderColor, setReminderColor] = useState('#a3e635');
 
+  // Modals state
+  const [tailorModalOpen, setTailorModalOpen] = useState(false);
+  const [applyModalOpen, setApplyModalOpen] = useState(false);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [selectedTailoredCvId, setSelectedTailoredCvId] = useState(null);
+
+  // Toast state
+  const [toast, setToast] = useState(null);
+
+  // Local bookmarks
+  const [bookmarks, setBookmarks] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('bookmarks') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleBookmark = (job) => {
+    const jobId = job._id || job.id || job.dedupeHash;
+    setBookmarks((prev) => {
+      const exists = prev.some((b) => (b._id || b.id || b.dedupeHash) === jobId);
+      let updated;
+      if (exists) {
+        updated = prev.filter((b) => (b._id || b.id || b.dedupeHash) !== jobId);
+        setToast({ message: `Removed "${job.title}" from saved bookmarks.`, type: 'info' });
+      } else {
+        updated = [...prev, job];
+        setToast({ message: `Saved "${job.title}" to bookmarks!`, type: 'success' });
+      }
+      localStorage.setItem('bookmarks', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const isBookmarked = (job) => {
+    const jobId = job._id || job.id || job.dedupeHash;
+    return bookmarks.some((b) => (b._id || b.id || b.dedupeHash) === jobId);
+  };
+
+  // Fetch application statistics
   const fetchStats = async () => {
     if (!user) return;
     try {
@@ -45,52 +106,87 @@ const Dashboard = ({ setActiveTab }) => {
       setApplications(data.applications || []);
     } catch (err) {
       console.error(err);
-      if (err.message && err.message.toLowerCase().includes('no applications found')) {
-        setApplications([]);
-      } else {
-        setError('Failed to load application statistics');
-      }
+      setApplications([]);
     } finally {
-      setLoading(false);
+      setStatsLoading(false);
     }
   };
 
+  // Fetch recommendations
+  const fetchRecommendations = async () => {
+    if (!user) return;
+    setRecsLoading(true);
+    try {
+      const data = await api.getRecommendations(1, 4);
+      setRecommendations(data.recommendations || []);
+    } catch (err) {
+      console.error('Error fetching recommendations:', err);
+    } finally {
+      setRecsLoading(false);
+    }
+  };
+
+  // Recompute recommendations
+  const handleRecomputeRecommendations = async () => {
+    setRecsLoading(true);
+    try {
+      const data = await api.recomputeRecommendations();
+      setRecommendations(data.recommendations?.slice(0, 4) || []);
+      setToast({ message: 'AI match scores recomputed using latest candidate profile!', type: 'success' });
+    } catch (err) {
+      setToast({ message: 'Failed to recompute match scores', type: 'error' });
+    } finally {
+      setRecsLoading(false);
+    }
+  };
+
+  // Fetch Sri Lanka Vacancies
+  const fetchVacancies = async () => {
+    setVacanciesLoading(true);
+    try {
+      const data = await api.getVacancies({
+        page: vacancyPage,
+        limit: 6,
+        source: selectedSource,
+        role: searchRole,
+        location: selectedLocation
+      });
+      setVacancies(data.jobs || []);
+      setVacancyTotalPages(data.totalPages || 1);
+    } catch (err) {
+      console.error('Error fetching vacancies:', err);
+    } finally {
+      setVacanciesLoading(false);
+    }
+  };
+
+  // Trigger manual scrape refresh
+  const handleRefreshScrapers = async () => {
+    setToast({ message: 'Triggered live scraper cycle across Sri Lankan job boards...', type: 'info' });
+    try {
+      await api.refreshVacancies();
+      setToast({ message: 'Vacancy refresh completed! Reloading board...', type: 'success' });
+      fetchVacancies();
+    } catch (err) {
+      setToast({ message: 'Scraper refresh error: ' + err.message, type: 'error' });
+    }
+  };
+
+  // Fetch reminders
   const fetchReminders = async () => {
     if (!user) return;
     try {
       const data = await api.getReminders();
       setReminders(data.reminders || []);
     } catch (err) {
-      console.error("Failed to load reminders", err);
+      console.error('Failed to load reminders:', err);
     }
   };
 
-  useEffect(() => {
-    fetchStats();
-    fetchReminders();
-  }, [user]);
-
-  // Aggregate stats
-  const total = applications.length;
-  const applied = applications.filter(a => a.status === 'applied').length;
-  const interviewed = applications.filter(a => a.status === 'interviewed').length;
-  const offered = applications.filter(a => a.status === 'offered').length;
-  const rejected = applications.filter(a => a.status === 'rejected').length;
-
-  const getPercentage = (count) => {
-    if (total === 0) return 0;
-    return Math.round((count / total) * 100);
-  };
-
-  const appliedPct = getPercentage(applied);
-  const interviewedPct = getPercentage(interviewed);
-  const offeredPct = getPercentage(offered);
-
-  // Reminder CRUD actions
   const handleAddReminder = async (e) => {
     e.preventDefault();
     if (!reminderTitle || !reminderDate) {
-      alert("Please fill in Title and Date");
+      setToast({ message: 'Please provide Title and Date for reminder', type: 'error' });
       return;
     }
     try {
@@ -102,506 +198,718 @@ const Dashboard = ({ setActiveTab }) => {
         color: reminderColor
       });
       setReminderTitle('');
-      setReminderDate('');
-      setReminderTime('10:00');
       setReminderDesc('');
+      setReminderDate('');
       setShowAddReminderForm(false);
+      setToast({ message: 'Reminder created successfully!', type: 'success' });
       fetchReminders();
     } catch (err) {
-      alert(err.message || "Failed to create reminder");
+      setToast({ message: 'Failed to create reminder', type: 'error' });
     }
   };
 
   const handleDeleteReminder = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this reminder?")) return;
     try {
       await api.deleteReminder(id);
+      setToast({ message: 'Reminder deleted', type: 'info' });
       fetchReminders();
     } catch (err) {
-      alert("Failed to delete reminder");
+      setToast({ message: 'Failed to delete reminder', type: 'error' });
     }
   };
 
-  // Grouping and combining events dynamically
-  const formatDateLabel = (dateInput) => {
-    if (!dateInput) return '';
-    // If it is already in standard format (e.g. YYYY-MM-DD), let's render nicely
-    const dateObj = new Date(dateInput);
-    if (isNaN(dateObj.getTime())) return String(dateInput);
-    return dateObj.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+  // Initial load
+  useEffect(() => {
+    fetchStats();
+    fetchRecommendations();
+    fetchReminders();
+  }, [user]);
+
+  // Load vacancies on filter/page change with 300ms debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchVacancies();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [vacancyPage, selectedSource, searchRole, selectedLocation]);
+
+  // Aggregate stats calculations
+  const total = applications.length;
+  const applied = applications.filter((a) => a.status === 'applied').length;
+  const interviewed = applications.filter((a) => a.status === 'interviewed').length;
+  const offered = applications.filter((a) => a.status === 'offered').length;
+  const rejected = applications.filter((a) => a.status === 'rejected').length;
+
+  const handleOpenTailor = (job) => {
+    setSelectedJob(job);
+    setTailorModalOpen(true);
   };
 
-  const getCombinedCalendarEvents = () => {
-    const events = [];
-
-    // 1. Add applications milestones dynamically
-    applications.forEach(app => {
-      if (app.createdAt) {
-        events.push({
-          id: `applied-${app._id}`,
-          title: `Applied: ${app.title}`,
-          subtitle: app.company,
-          date: app.createdAt.split('T')[0],
-          time: new Date(app.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-          color: '#581c87', // Purple
-          isManual: false
-        });
-      }
-
-      if (app.status === 'interviewed') {
-        events.push({
-          id: `interview-${app._id}`,
-          title: `Interview Scheduled`,
-          subtitle: `${app.title} at ${app.company}`,
-          date: (app.updatedAt || app.createdAt).split('T')[0],
-          time: new Date(app.updatedAt || app.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-          color: '#ea580c', // Orange
-          isManual: false
-        });
-      }
-
-      if (app.status === 'offered') {
-        events.push({
-          id: `offer-${app._id}`,
-          title: `Offer Received 🎉`,
-          subtitle: `${app.title} at ${app.company}`,
-          date: (app.updatedAt || app.createdAt).split('T')[0],
-          time: new Date(app.updatedAt || app.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-          color: '#a3e635', // Lime/Green
-          isManual: false
-        });
-      }
-    });
-
-    // 2. Add manual user reminders
-    reminders.forEach(rem => {
-      events.push({
-        id: rem._id,
-        title: rem.title,
-        subtitle: rem.description || 'Reminder',
-        date: rem.date,
-        time: rem.time,
-        color: rem.color || '#a3e635',
-        isManual: true
-      });
-    });
-
-    // Group by date
-    const grouped = {};
-    events.forEach(evt => {
-      const label = evt.date;
-      if (!grouped[label]) {
-        grouped[label] = [];
-      }
-      grouped[label].push(evt);
-    });
-
-    // Sort dates ascending
-    const sortedDates = Object.keys(grouped).sort((a, b) => new Date(a) - new Date(b));
-
-    return sortedDates.map(d => ({
-      dateRaw: d,
-      dateLabel: formatDateLabel(d),
-      events: grouped[d].sort((x, y) => x.time.localeCompare(y.time))
-    }));
+  const handleOpenApply = (job, tailoredCvId = null) => {
+    setSelectedJob(job);
+    setSelectedTailoredCvId(tailoredCvId);
+    setApplyModalOpen(true);
   };
 
-  // Date styling
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
+  const sourceTabs = [
+    { id: 'all', label: 'All Sources' },
+    { id: 'itpro', label: 'ITPro.lk' },
+    { id: 'xpressjobs', label: 'XpressJobs' },
+    { id: 'topjobs', label: 'TopJobs' },
+    { id: 'ikman', label: 'ikman Jobs' },
+    { id: 'rooster', label: 'Rooster' }
+  ];
 
   return (
-    <div className='max-w-[1600px] mx-auto px-6 py-6 select-none font-sans text-neutral-800 w-full'>
-      <div className='bg-white border-2 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden flex flex-col md:flex-row min-h-[86vh] relative z-10 w-full'>
-        
-        {/* PANEL 1: LEFT SIDEBAR */}
-        <aside className='w-full md:w-60 border-b-2 md:border-b-0 md:border-r-2 border-black p-6 flex flex-col justify-between bg-lime-400/5 min-h-fit md:min-h-full'>
-          <div className='flex flex-col gap-8'>
-            {/* Logo */}
-            <div className='flex items-center gap-2 border-b border-neutral-200 pb-4'>
-              <div className='w-8 h-8 rounded-lg bg-[#a3e635] border-2 border-black flex items-center justify-center font-black text-neutral-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
-                JT
-              </div>
-              <span className='font-bold text-lg tracking-tight'>JT Chart</span>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10 animate-in fade-in duration-300">
+      
+      {/* 1. Header & Welcome */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-extrabold text-neutral-900 tracking-tight leading-tight">
+            Welcome back, <span className="text-[#84cc16]">{user?.firstname || 'Candidate'}</span>!
+          </h2>
+          <p className="text-xs md:text-sm text-neutral-500 font-medium mt-1">
+            Track applications, discover daily Sri Lankan IT vacancies, and match roles using RAG intelligence.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setActiveTab('profile')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white text-neutral-900 font-bold border-2 border-neutral-900 rounded-xl hover:bg-neutral-50 text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px]"
+          >
+            <IoDocumentTextOutline className="w-4 h-4 text-lime-600" />
+            <span>Manage CV Profile</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('tracker')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-xl hover:bg-lime-400 text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px]"
+          >
+            <IoBriefcaseOutline className="w-4 h-4" />
+            <span>Application Spreadsheet</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Stats Metric Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        {/* Total */}
+        <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">Total Tracked</span>
+          <div className="text-2xl font-black text-neutral-900">{total}</div>
+          <div className="text-[10px] text-neutral-500 font-medium">All recorded vacancies</div>
+        </div>
+
+        {/* Applied */}
+        <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-blue-500">Applied</span>
+          <div className="text-2xl font-black text-blue-600">{applied}</div>
+          <div className="text-[10px] text-neutral-500 font-medium">In initial pipeline</div>
+        </div>
+
+        {/* Interviewing */}
+        <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-500">Interviewing</span>
+          <div className="text-2xl font-black text-amber-600">{interviewed}</div>
+          <div className="text-[10px] text-neutral-500 font-medium">Active screening / rounds</div>
+        </div>
+
+        {/* Offers */}
+        <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-500">Offers</span>
+          <div className="text-2xl font-black text-emerald-600">{offered}</div>
+          <div className="text-[10px] text-neutral-500 font-medium">Secured proposals</div>
+        </div>
+
+        {/* Rejected */}
+        <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-1 col-span-2 md:col-span-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-500">Archived / Rejected</span>
+          <div className="text-2xl font-black text-rose-600">{rejected}</div>
+          <div className="text-[10px] text-neutral-500 font-medium">Closed pipelines</div>
+        </div>
+      </div>
+
+      {/* 3. Section: "Recommended for You" (RAG Match Scoring) */}
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b-2 border-neutral-900 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-lime-100 text-neutral-900 border border-neutral-900 rounded-lg">
+              <IoSparklesOutline className="w-5 h-5 text-lime-700" />
             </div>
-
-            {/* Profile Card */}
-            <div className='flex flex-col items-center text-center gap-2 py-3 bg-white border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] w-full'>
-              <div className='w-16 h-16 rounded-full bg-lime-100 border-2 border-black overflow-hidden relative flex items-center justify-center font-extrabold text-neutral-800 text-xl shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
-                {user?.firstname?.[0]?.toUpperCase()}{user?.lastname?.[0]?.toUpperCase()}
-              </div>
-              <div className='px-2 w-full'>
-                <h4 className='font-extrabold text-sm text-neutral-900 truncate'>{user?.firstname} {user?.lastname}</h4>
-                <p className='text-xxs font-semibold text-neutral-400 truncate w-full'>{user?.email}</p>
-                {user?.linkedin && (
-                  <a 
-                    href={user.linkedin}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className='mt-2.5 inline-flex items-center justify-center gap-1.5 bg-[#0077b5] text-white font-extrabold text-[10px] uppercase px-3 py-1 border border-black rounded-md hover:bg-[#006297] transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-none'
-                  >
-                    <IoLogoLinkedin size={10} />
-                    LinkedIn
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Sidebar Navigation */}
-            <nav className='flex flex-col gap-2'>
-              <button 
-                onClick={() => setActiveTab('dashboard')}
-                className='flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold bg-[#a3e635] border-2 border-black text-neutral-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-              >
-                <IoHomeOutline size={16} />
-                Dashboard
-              </button>
-              <button 
-                onClick={() => setActiveTab('tracker')}
-                className='flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 transition-colors'
-              >
-                <IoListOutline size={16} />
-                Job Tracker
-              </button>
-              <button 
-                onClick={() => setActiveTab('explore')}
-                className='flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 transition-colors'
-              >
-                <IoBarChartOutline size={16} />
-                Explored Board
-              </button>
-              <button 
-                onClick={() => setActiveTab('bookmarks')}
-                className='flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 transition-colors'
-              >
-                <IoBookmarkOutline size={16} />
-                Bookmarks
-              </button>
-              <button 
-                onClick={() => setActiveTab('profile')}
-                className='flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 transition-colors'
-              >
-                <IoSettingsOutline size={16} />
-                Settings
-              </button>
-            </nav>
-          </div>
-          
-          <div className='text-xxs font-semibold text-neutral-400 mt-6 border-t border-neutral-200 pt-4'>
-            © {new Date().getFullYear()} JT Tracker Inc.
-          </div>
-        </aside>
-
-        {/* PANEL 2: CENTER MAIN CONTENT */}
-        <main className='flex-1 p-6 md:p-8 flex flex-col gap-8 text-left overflow-y-auto max-h-[85vh] scrollbar-thin scrollbar-thumb-neutral-200'>
-          
-          {/* Main Header */}
-          <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-neutral-100 pb-4'>
             <div>
-              <h2 className='text-2xl md:text-3xl font-extrabold text-neutral-900'>
-                Hello, {user?.firstname}
-              </h2>
-              <p className='text-xxs md:text-xs text-neutral-400 font-bold tracking-wide uppercase mt-1'>
-                Today is {today}
+              <h3 className="text-lg font-extrabold text-neutral-900 leading-tight">
+                Recommended for You
+              </h3>
+              <p className="text-xs text-neutral-500 font-medium">
+                AI hybrid match score (50% semantic, 30% skills, 10% experience, 10% preference)
               </p>
             </div>
-            
-            <div className='flex items-center gap-3 w-full md:w-auto'>
-              <button 
-                onClick={() => setActiveTab('tracker')}
-                className='bg-white border-2 border-black p-2 rounded-xl hover:bg-neutral-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer'
-              >
-                <IoSearchOutline size={18} />
-              </button>
-              <button 
-                onClick={() => setActiveTab('explore')}
-                className='flex-1 md:flex-none bg-neutral-950 text-white font-extrabold text-xs px-4 py-2.5 border-2 border-black rounded-xl hover:bg-neutral-800 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center gap-1.5'
-              >
-                <IoAddOutline size={16} />
-                Add New Project
-              </button>
-            </div>
           </div>
 
-          {/* Project Cards Row */}
-          <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
-            {/* Card 1: Purple (Web Dev / Applied) */}
-            <div className='bg-[#581c87] text-white rounded-3xl p-5 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between min-h-[160px] relative overflow-hidden'>
-              <div className='absolute right-[-20px] top-[-20px] w-24 h-24 rounded-full bg-white/5'></div>
-              <div className='flex justify-between items-start'>
-                <span className='bg-white/10 text-white font-bold text-xxs px-2.5 py-0.5 rounded-full border border-white/20 uppercase'>
-                  Applied
-                </span>
-                <IoEllipsisHorizontalOutline className='text-white/70 cursor-pointer hover:text-white' size={18} />
-              </div>
-              <div className='mt-4'>
-                <h4 className='text-lg font-extrabold leading-snug'>Web Development</h4>
-                <p className='text-xxs text-purple-200 font-semibold mt-1'>{applied} applications | {appliedPct}% rate</p>
-              </div>
-              <div className='mt-4 flex flex-col gap-1.5'>
-                <div className='w-full bg-white/20 rounded-full h-2 p-0.5'>
-                  <div className='bg-[#a3e635] h-full rounded-full transition-all duration-300' style={{ width: `${appliedPct}%` }}></div>
-                </div>
-              </div>
-            </div>
+          <button
+            onClick={handleRecomputeRecommendations}
+            disabled={recsLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-neutral-800 font-bold border border-neutral-300 rounded-xl hover:bg-neutral-50 text-xs cursor-pointer shadow-sm disabled:opacity-50"
+          >
+            <IoSyncOutline className={`w-3.5 h-3.5 ${recsLoading ? 'animate-spin' : ''}`} />
+            <span>Recalculate Matches</span>
+          </button>
+        </div>
 
-            {/* Card 2: Teal (Mobile App Design / Interview) */}
-            <div className='bg-[#0d9488] text-white rounded-3xl p-5 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between min-h-[160px] relative overflow-hidden'>
-              <div className='absolute right-[-20px] top-[-20px] w-24 h-24 rounded-full bg-white/5'></div>
-              <div className='flex justify-between items-start'>
-                <span className='bg-white/10 text-white font-bold text-xxs px-2.5 py-0.5 rounded-full border border-white/20 uppercase'>
-                  Interviewed
-                </span>
-                <IoEllipsisHorizontalOutline className='text-white/70 cursor-pointer hover:text-white' size={18} />
-              </div>
-              <div className='mt-4'>
-                <h4 className='text-lg font-extrabold leading-snug'>Mobile App Design</h4>
-                <p className='text-xxs text-teal-100 font-semibold mt-1'>{interviewed} scheduled | {interviewedPct}% rate</p>
-              </div>
-              <div className='mt-4 flex flex-col gap-1.5'>
-                <div className='w-full bg-white/20 rounded-full h-2 p-0.5'>
-                  <div className='bg-[#a3e635] h-full rounded-full transition-all duration-300' style={{ width: `${interviewedPct}%` }}></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 3: Orange (UI Kit / Offered) */}
-            <div className='bg-[#ea580c] text-white rounded-3xl p-5 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between min-h-[160px] relative overflow-hidden'>
-              <div className='absolute right-[-20px] top-[-20px] w-24 h-24 rounded-full bg-white/5'></div>
-              <div className='flex justify-between items-start'>
-                <span className='bg-white/10 text-white font-bold text-xxs px-2.5 py-0.5 rounded-full border border-white/20 uppercase'>
-                  Offered
-                </span>
-                <IoEllipsisHorizontalOutline className='text-white/70 cursor-pointer hover:text-white' size={18} />
-              </div>
-              <div className='mt-4'>
-                <h4 className='text-lg font-extrabold leading-snug'>Facebook Brand UI Kit</h4>
-                <p className='text-xxs text-orange-100 font-semibold mt-1'>{offered} received | {offeredPct}% rate</p>
-              </div>
-              <div className='mt-4 flex flex-col gap-1.5'>
-                <div className='w-full bg-white/20 rounded-full h-2 p-0.5'>
-                  <div className='bg-[#a3e635] h-full rounded-full transition-all duration-300' style={{ width: `${offeredPct}%` }}></div>
-                </div>
-              </div>
-            </div>
+        {recsLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <SkeletonRecommendation />
+            <SkeletonRecommendation />
           </div>
-
-          {/* Lower Columns: Tasks & Stats */}
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-8'>
-            
-            {/* Left: Tasks for today */}
-            <div className='flex flex-col gap-4'>
-              <h3 className='text-sm font-extrabold text-neutral-900 uppercase border-b border-neutral-100 pb-2'>
-                Tasks for today
-              </h3>
-              
-              <div className='flex flex-col gap-3.5'>
-                {/* Task Item 1 */}
-                <div className='bg-white border-2 border-black rounded-2xl p-4 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] border-l-8 border-l-[#ea580c] flex justify-between items-center'>
-                  <div>
-                    <h4 className='font-extrabold text-sm text-neutral-900'>Mobile App</h4>
-                    <p className='text-xxs text-neutral-400 font-bold uppercase mt-0.5'>Prepare Figma file</p>
-                  </div>
-                  <IoCheckmarkCircleOutline className='text-neutral-300' size={22} />
-                </div>
-
-                {/* Task Item 2 */}
-                <div className='bg-white border-2 border-black rounded-2xl p-4 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] border-l-8 border-l-[#581c87] flex justify-between items-center'>
-                  <div>
-                    <h4 className='font-extrabold text-sm text-neutral-900'>UX wireframes</h4>
-                    <p className='text-xxs text-neutral-400 font-bold uppercase mt-0.5'>Design UX wireframes</p>
-                  </div>
-                  <IoCheckmarkCircleOutline className='text-neutral-300' size={22} />
-                </div>
-
-                {/* Task Item 3 */}
-                <div className='bg-white border-2 border-black rounded-2xl p-4 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] border-l-8 border-l-[#0d9488] flex justify-between items-center'>
-                  <div>
-                    <h4 className='font-extrabold text-sm text-neutral-900'>Mobile App</h4>
-                    <p className='text-xxs text-neutral-400 font-bold uppercase mt-0.5'>Research</p>
-                  </div>
-                  <IoCheckmarkCircleOutline className='text-emerald-500' size={22} />
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Statistics */}
-            <div className='flex flex-col gap-4'>
-              <h3 className='text-sm font-extrabold text-neutral-900 uppercase border-b border-neutral-100 pb-2'>
-                Statistics
-              </h3>
-
-              <div className='grid grid-cols-3 gap-4 mb-4'>
-                <div className='bg-[#e4ffd4]/20 border-2 border-black rounded-2xl p-3 text-center flex flex-col items-center justify-center gap-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'>
-                  <span className='text-lg font-extrabold'>{total}</span>
-                  <span className='text-[8px] font-bold text-neutral-400 uppercase tracking-wide leading-tight'>Tracked time</span>
-                </div>
-                <div className='bg-white border-2 border-black rounded-2xl p-3 text-center flex flex-col items-center justify-center gap-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'>
-                  <span className='text-lg font-extrabold'>{offered + interviewed}</span>
-                  <span className='text-[8px] font-bold text-neutral-400 uppercase tracking-wide leading-tight'>Finished tasks</span>
-                </div>
-                <div 
-                  onClick={() => setActiveTab('explore')}
-                  className='border-2 border-dashed border-neutral-400 hover:border-black rounded-2xl p-3 text-center flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-neutral-50 transition-colors'
-                >
-                  <IoAddOutline size={20} className='text-neutral-500' />
-                  <span className='text-[8px] font-bold text-neutral-400 uppercase tracking-wide leading-tight'>New widget</span>
-                </div>
-              </div>
-
-              {/* Promo pro banner */}
-              <div className='bg-[#a3e635]/10 border-2 border-neutral-950 rounded-2xl p-4 flex items-center justify-between shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden'>
-                <div className='flex flex-col gap-1 text-left relative z-10'>
-                  <span className='text-lg font-extrabold text-neutral-900'>$9.99 <span className='text-xs font-semibold'>p/m</span></span>
-                  <h4 className='text-xs font-black text-neutral-900 mt-0.5'>Pro Plan</h4>
-                  <p className='text-[10px] text-neutral-500 font-semibold leading-normal max-w-[150px]'>More productivity with premium!</p>
-                </div>
-                
-                {/* Circle badge */}
-                <div className='w-12 h-12 rounded-full bg-[#a3e635] border-2 border-black flex items-center justify-center text-xs font-black rotate-12 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
-                  PRO
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-        </main>        {/* PANEL 3: RIGHT CALENDAR SIDEBAR */}
-        <aside className='w-full md:w-60 border-t-2 md:border-t-0 md:border-l-2 border-black p-6 flex flex-col gap-6 bg-lime-400/5'>
-          
-          <div className='flex justify-between items-center border-b border-neutral-200 pb-4'>
-            <span className='font-extrabold text-sm tracking-wider text-neutral-800 uppercase'>Calendar</span>
-            <button 
-              onClick={() => setShowAddReminderForm(!showAddReminderForm)}
-              className='bg-[#a3e635] text-neutral-900 border-2 border-black p-1.5 rounded-lg hover:bg-lime-400 transition-colors cursor-pointer shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
-              title="Add Reminder"
+        ) : recommendations.length === 0 ? (
+          <div className="p-8 bg-white border-2 border-neutral-900 rounded-2xl text-center space-y-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+            <IoBriefcaseOutline className="w-10 h-10 text-neutral-300 mx-auto" />
+            <p className="text-xs text-neutral-600 font-bold">
+              Upload your CV in Profile to unlock personalized match scores and role recommendations!
+            </p>
+            <button
+              onClick={() => setActiveTab('profile')}
+              className="px-4 py-2 bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-xl text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer"
             >
-              <IoAddOutline size={16} />
+              Upload CV
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {recommendations.map((job) => {
+              const jobId = job._id || job.id || job.dedupeHash;
+              const isExpanded = expandedRecId === jobId;
+              const expl = job.explanation;
+
+              return (
+                <div
+                  key={jobId}
+                  className="bg-white border-2 border-neutral-900 rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    {/* Top Row: Score & Title */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-neutral-100 text-neutral-700 rounded-md border border-neutral-300">
+                            {job.source || 'SRI LANKA'}
+                          </span>
+                          <span className="text-[10px] font-bold text-neutral-500">
+                            {job.mode || 'hybrid'}
+                          </span>
+                        </div>
+                        <h4 className="font-extrabold text-neutral-900 text-base leading-snug">
+                          {job.title}
+                        </h4>
+                        <p className="text-xs text-neutral-600 font-medium">
+                          {job.company} • {job.location || 'Sri Lanka'}
+                        </p>
+                      </div>
+
+                      {/* Score Ring */}
+                      <ScoreRing score={job.matchScore || 75} size={54} />
+                    </div>
+
+                    {/* Skill Overlap Preview */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {expl?.matchedSkills?.slice(0, 4).map((skill, sIdx) => (
+                        <span
+                          key={sIdx}
+                          className="px-2 py-0.5 bg-lime-100 text-lime-800 text-[10px] font-bold rounded-md border border-lime-300"
+                        >
+                          ✓ {skill}
+                        </span>
+                      ))}
+                      {expl?.missingSkills?.slice(0, 2).map((skill, sIdx) => (
+                        <span
+                          key={sIdx}
+                          className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-bold rounded-md border border-amber-200"
+                        >
+                          + {skill}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* One-Line Recruiter Summary */}
+                    {expl?.oneLineSummary && (
+                      <p className="text-xs text-neutral-600 font-sans italic border-l-2 border-lime-400 pl-2 py-0.5">
+                        "{expl.oneLineSummary}"
+                      </p>
+                    )}
+
+                    {/* Expandable Explanation Breakdown */}
+                    {isExpanded && (
+                      <div className="pt-3 border-t border-neutral-200 space-y-2.5 text-xs animate-in fade-in duration-200">
+                        {/* Score Breakdown Bars */}
+                        <div className="grid grid-cols-2 gap-2 text-[11px] p-2.5 bg-neutral-50 rounded-xl border border-neutral-200">
+                          <div>
+                            <span className="text-neutral-500">Semantic Fit:</span>
+                            <span className="font-bold ml-1 text-neutral-800">{job.scoreBreakdown?.semantic || 80}%</span>
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Skill Overlap:</span>
+                            <span className="font-bold ml-1 text-neutral-800">{job.scoreBreakdown?.skills || 75}%</span>
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Seniority Fit:</span>
+                            <span className="font-bold ml-1 text-neutral-800">{job.scoreBreakdown?.experience || 90}%</span>
+                          </div>
+                          <div>
+                            <span className="text-neutral-500">Preferences:</span>
+                            <span className="font-bold ml-1 text-neutral-800">{job.scoreBreakdown?.preference || 85}%</span>
+                          </div>
+                        </div>
+
+                        {/* Strengths */}
+                        {expl?.strengths?.length > 0 && (
+                          <div>
+                            <span className="font-bold text-neutral-800 block text-[11px]">Strengths</span>
+                            <ul className="list-disc list-inside text-neutral-600 text-[11px]">
+                              {expl.strengths.map((str, i) => (
+                                <li key={i}>{str}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Gaps */}
+                        {expl?.gaps?.length > 0 && (
+                          <div>
+                            <span className="font-bold text-neutral-800 block text-[11px]">Potential Gaps</span>
+                            <ul className="list-disc list-inside text-neutral-600 text-[11px]">
+                              {expl.gaps.map((gap, i) => (
+                                <li key={i}>{gap}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Bottom Actions */}
+                  <div className="pt-4 mt-3 border-t border-neutral-100 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => setExpandedRecId(isExpanded ? null : jobId)}
+                      className="text-xs font-bold text-neutral-500 hover:text-neutral-900 flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>{isExpanded ? 'Less Details' : 'Why this score?'}</span>
+                      {isExpanded ? <IoChevronUpOutline /> : <IoChevronDownOutline />}
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleBookmark(job)}
+                        className="p-2 border border-neutral-300 rounded-xl hover:bg-neutral-100 transition-colors cursor-pointer"
+                        title="Bookmark"
+                      >
+                        {isBookmarked(job) ? (
+                          <IoBookmark className="w-4 h-4 text-lime-600" />
+                        ) : (
+                          <IoBookmarkOutline className="w-4 h-4 text-neutral-500" />
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenTailor(job)}
+                        className="px-3 py-1.5 bg-neutral-900 text-white font-bold rounded-xl text-xs hover:bg-neutral-800 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)]"
+                      >
+                        Tailor CV
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenApply(job)}
+                        className="px-3 py-1.5 bg-[#a3e635] text-neutral-950 font-extrabold border border-neutral-900 rounded-xl text-xs hover:bg-lime-400 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 4. Section: "Today's Vacancies in Sri Lanka" */}
+      <div className="space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b-2 border-neutral-900 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-neutral-900 text-white rounded-lg">
+              <IoFlameOutline className="w-5 h-5 text-lime-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-extrabold text-neutral-900 leading-tight">
+                Today's Vacancies in Sri Lanka
+              </h3>
+              <p className="text-xs text-neutral-500 font-medium">
+                Live IT job postings indexed from TopJobs, ITPro.lk, XpressJobs, ikman, and Rooster
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefreshScrapers}
+              className="px-3.5 py-2 bg-white text-neutral-900 font-bold border-2 border-neutral-900 rounded-xl hover:bg-neutral-50 text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] flex items-center gap-1.5"
+            >
+              <IoSyncOutline className="w-3.5 h-3.5" />
+              <span>Refresh Boards</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filters & Source Tabs */}
+        <div className="space-y-3">
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {sourceTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setSelectedSource(tab.id);
+                  setVacancyPage(1);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border-2 ${
+                  selectedSource === tab.id
+                    ? 'bg-neutral-900 text-white border-neutral-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]'
+                    : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="relative col-span-2">
+              <IoSearchOutline className="absolute left-3.5 top-3 w-4 h-4 text-neutral-400" />
+              <input
+                type="text"
+                value={searchRole}
+                onChange={(e) => {
+                  setSearchRole(e.target.value);
+                  setVacancyPage(1);
+                }}
+                placeholder="Search by role, skill, or keyword (e.g. React, QA, Python, DevOps)..."
+                className="w-full text-xs pl-10 pr-4 py-2.5 bg-white border-2 border-neutral-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-400 font-sans shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+              />
+            </div>
+
+            <div className="relative">
+              <IoLocationOutline className="absolute left-3.5 top-3 w-4 h-4 text-neutral-400" />
+              <select
+                value={selectedLocation}
+                onChange={(e) => {
+                  setSelectedLocation(e.target.value);
+                  setVacancyPage(1);
+                }}
+                className="w-full text-xs pl-10 pr-8 py-2.5 bg-white border-2 border-neutral-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-400 font-sans shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] appearance-none cursor-pointer"
+              >
+                <option value="all">All Locations (Sri Lanka)</option>
+                <option value="colombo">Colombo</option>
+                <option value="kandy">Kandy</option>
+                <option value="remote">Remote</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Vacancies Grid */}
+        {vacanciesLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : vacancies.length === 0 ? (
+          <div className="p-12 bg-white border-2 border-neutral-900 rounded-2xl text-center space-y-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+            <IoBriefcaseOutline className="w-10 h-10 text-neutral-300 mx-auto" />
+            <h4 className="font-extrabold text-neutral-800 text-sm">No Vacancies Matched Your Filters</h4>
+            <p className="text-xs text-neutral-500 max-w-sm mx-auto">
+              Try adjusting your role keywords, selecting "All Sources", or clicking "Refresh Boards".
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {vacancies.map((job) => {
+              const jobId = job._id || job.id || job.dedupeHash;
+              return (
+                <div
+                  key={jobId}
+                  className="bg-white border-2 border-neutral-900 rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-neutral-100 text-neutral-800 rounded-md border border-neutral-300 font-mono">
+                        {job.source || 'SRI LANKA'}
+                      </span>
+
+                      {job.isNewToday && (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-lime-400 text-neutral-950 rounded-md border border-neutral-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] flex items-center gap-1">
+                          <IoFlameOutline className="w-3 h-3 text-neutral-900" />
+                          New Today
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="font-extrabold text-neutral-900 text-sm leading-snug line-clamp-2">
+                        {job.title}
+                      </h4>
+                      <p className="text-xs text-neutral-600 font-medium mt-0.5">
+                        {job.company} • {job.location || 'Sri Lanka'}
+                      </p>
+                    </div>
+
+                    <p className="text-xs text-neutral-500 line-clamp-3 leading-relaxed font-sans">
+                      {job.description || `Software vacancy at ${job.company}. Click Tailor CV or Apply to review application options.`}
+                    </p>
+
+                    <div className="flex flex-wrap gap-1.5 pt-1 text-[11px] text-neutral-500 font-mono">
+                      <span className="px-2 py-0.5 bg-neutral-50 border border-neutral-200 rounded">
+                        {job.salary || 'Negotiable'}
+                      </span>
+                      <span className="px-2 py-0.5 bg-neutral-50 border border-neutral-200 rounded">
+                        {job.mode || 'hybrid'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="pt-4 mt-3 border-t border-neutral-100 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => toggleBookmark(job)}
+                      className="p-2 border border-neutral-300 rounded-xl hover:bg-neutral-100 transition-colors cursor-pointer"
+                      title="Bookmark"
+                    >
+                      {isBookmarked(job) ? (
+                        <IoBookmark className="w-4 h-4 text-lime-600" />
+                      ) : (
+                        <IoBookmarkOutline className="w-4 h-4 text-neutral-500" />
+                      )}
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenTailor(job)}
+                        className="px-3 py-1.5 bg-neutral-900 text-white font-bold rounded-xl text-xs hover:bg-neutral-800 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)]"
+                      >
+                        Tailor CV
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenApply(job)}
+                        className="px-3 py-1.5 bg-[#a3e635] text-neutral-950 font-extrabold border border-neutral-900 rounded-xl text-xs hover:bg-lime-400 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {vacancyTotalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 pt-4">
+            <button
+              onClick={() => setVacancyPage((p) => Math.max(1, p - 1))}
+              disabled={vacancyPage === 1}
+              className="px-4 py-2 bg-white text-neutral-800 font-bold border-2 border-neutral-900 rounded-xl text-xs hover:bg-neutral-50 disabled:opacity-40 cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            >
+              Previous
+            </button>
+            <span className="text-xs font-bold text-neutral-600">
+              Page {vacancyPage} of {vacancyTotalPages}
+            </span>
+            <button
+              onClick={() => setVacancyPage((p) => Math.min(vacancyTotalPages, p + 1))}
+              disabled={vacancyPage === vacancyTotalPages}
+              className="px-4 py-2 bg-white text-neutral-800 font-bold border-2 border-neutral-900 rounded-xl text-xs hover:bg-neutral-50 disabled:opacity-40 cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 5. Section: Reminders & Quick Pipeline */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4">
+        {/* Reminders Widget */}
+        <div className="lg:col-span-2 bg-white border-2 border-neutral-900 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
+            <div className="flex items-center gap-2">
+              <IoCalendarOutline className="w-5 h-5 text-lime-600" />
+              <h4 className="font-extrabold text-neutral-900 text-sm">
+                Interview & Follow-up Reminders
+              </h4>
+            </div>
+            <button
+              onClick={() => setShowAddReminderForm(!showAddReminderForm)}
+              className="text-xs font-bold text-neutral-700 hover:text-black flex items-center gap-1 cursor-pointer"
+            >
+              <IoAddOutline className="w-4 h-4" />
+              <span>{showAddReminderForm ? 'Cancel' : 'Add Reminder'}</span>
             </button>
           </div>
 
-          {/* Add Reminder Inline Form */}
           {showAddReminderForm && (
-            <form onSubmit={handleAddReminder} className='bg-white border-2 border-black rounded-xl p-3 flex flex-col gap-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] animate-in slide-in-from-top-3 duration-200'>
-              <div className='flex justify-between items-center border-b border-neutral-100 pb-1.5'>
-                <span className='text-[10px] font-extrabold text-neutral-700 uppercase'>New Reminder</span>
-                <button type="button" onClick={() => setShowAddReminderForm(false)} className='text-neutral-400 hover:text-neutral-900'>
-                  <IoCloseOutline size={16} />
-                </button>
-              </div>
-              <div className='flex flex-col gap-1'>
-                <label className='text-[9px] font-bold text-neutral-500 uppercase'>Title *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="e.g. Call recruiter" 
-                  value={reminderTitle}
-                  onChange={(e) => setReminderTitle(e.target.value)}
-                  className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
-                />
-              </div>
-              <div className='grid grid-cols-2 gap-2'>
-                <div className='flex flex-col gap-1'>
-                  <label className='text-[9px] font-bold text-neutral-500 uppercase'>Date *</label>
-                  <input 
-                    type="date" 
-                    required
+            <form onSubmit={handleAddReminder} className="p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={reminderTitle}
+                    onChange={(e) => setReminderTitle(e.target.value)}
+                    placeholder="e.g. Technical Round with WSO2"
+                    className="w-full p-2 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-lime-400"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">Date</label>
+                  <input
+                    type="date"
                     value={reminderDate}
                     onChange={(e) => setReminderDate(e.target.value)}
-                    className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
-                  />
-                </div>
-                <div className='flex flex-col gap-1'>
-                  <label className='text-[9px] font-bold text-neutral-500 uppercase'>Time *</label>
-                  <input 
-                    type="time" 
-                    required
-                    value={reminderTime}
-                    onChange={(e) => setReminderTime(e.target.value)}
-                    className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
+                    className="w-full p-2 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-lime-400"
                   />
                 </div>
               </div>
-              <div className='flex flex-col gap-1'>
-                <label className='text-[9px] font-bold text-neutral-500 uppercase'>Description</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Follow up on status" 
+
+              <div>
+                <label className="block font-bold text-neutral-700 mb-1">Notes</label>
+                <input
+                  type="text"
                   value={reminderDesc}
                   onChange={(e) => setReminderDesc(e.target.value)}
-                  className='border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-black bg-white text-neutral-800'
+                  placeholder="Review system design concepts..."
+                  className="w-full p-2 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-lime-400"
                 />
               </div>
-              <div className='flex justify-between items-center mt-1'>
-                {/* Color Selector */}
-                <div className='flex gap-1.5'>
-                  {['#a3e635', '#ea580c', '#581c87', '#0d9488'].map(c => (
-                    <button 
-                      key={c}
-                      type="button" 
-                      onClick={() => setReminderColor(c)}
-                      className={`w-4 h-4 rounded-full border border-black cursor-pointer ${reminderColor === c ? 'ring-2 ring-neutral-400' : ''}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-                <button type="submit" className='bg-neutral-900 text-white font-bold text-[10px] px-3 py-1.5 rounded border border-black hover:bg-neutral-800 transition-colors cursor-pointer'>
-                  Save
-                </button>
-              </div>
+
+              <button
+                type="submit"
+                className="px-4 py-2 bg-neutral-900 text-white font-bold rounded-lg text-xs hover:bg-neutral-800 transition-all cursor-pointer"
+              >
+                Save Reminder
+              </button>
             </form>
           )}
 
-          {/* Calendar Event Days List */}
-          <div className='flex flex-col gap-6 text-left overflow-y-auto max-h-[70vh] pr-1'>
-            {getCombinedCalendarEvents().length === 0 ? (
-              <div className='text-center py-16 text-neutral-400 italic text-xs'>
-                No upcoming events or reminders. Click the + icon to add a reminder!
-              </div>
-            ) : (
-              getCombinedCalendarEvents().map((day) => (
-                <div key={day.dateRaw} className='flex flex-col gap-3'>
-                  <span className='text-[10px] font-extrabold tracking-widest text-neutral-400 uppercase'>{day.dateLabel}</span>
-                  <div className='flex flex-col gap-2.5'>
-                    {day.events.map((evt) => (
-                      <div 
-                        key={evt.id}
-                        className='bg-white border-2 border-black rounded-2xl p-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex justify-between items-center group relative overflow-hidden'
-                      >
-                        <div className='flex gap-3 pl-2' style={{ borderLeft: `3px solid ${evt.color}` }}>
-                          <span className='text-[10px] font-black text-neutral-900 self-start mt-0.5'>{evt.time}</span>
-                          <div>
-                            <h5 className='text-xs font-bold text-neutral-800 leading-tight'>{evt.title}</h5>
-                            <p className='text-[10px] font-semibold text-neutral-400 mt-0.5'>{evt.subtitle}</p>
-                          </div>
-                        </div>
-                        {evt.isManual && (
-                          <button 
-                            onClick={() => handleDeleteReminder(evt.id)}
-                            className='text-neutral-400 hover:text-rose-600 transition-colors p-1 cursor-pointer absolute right-2 top-2 bg-white/80 rounded-md border border-neutral-100 opacity-0 group-hover:opacity-100 transition-opacity duration-150'
-                            title="Delete Reminder"
-                          >
-                            <IoTrashOutline size={12} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
+          {reminders.length === 0 ? (
+            <p className="text-xs text-neutral-500 italic py-4 text-center">
+              No upcoming interview or task deadlines recorded.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {reminders.map((rem) => (
+                <div
+                  key={rem._id}
+                  className="flex items-center justify-between p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs hover:bg-neutral-100/60 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: rem.color || '#a3e635' }}
+                    />
+                    <div>
+                      <div className="font-extrabold text-neutral-900">{rem.title}</div>
+                      {rem.description && (
+                        <div className="text-[11px] text-neutral-500">{rem.description}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] font-mono text-neutral-500">
+                      {rem.date} {rem.time}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteReminder(rem._id)}
+                      className="text-neutral-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      title="Delete reminder"
+                    >
+                      <IoTrashOutline className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-              ))
-            )}
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Pipeline Summary Card */}
+        <div className="bg-neutral-900 text-white border-2 border-neutral-900 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between space-y-4">
+          <div className="space-y-3">
+            <span className="text-xs font-extrabold uppercase tracking-widest text-[#a3e635]">
+              Pipeline Strategy
+            </span>
+            <h4 className="text-base font-extrabold text-white leading-tight">
+              Ready to Accelerate Your Career?
+            </h4>
+            <p className="text-xs text-neutral-400 leading-relaxed font-sans">
+              Tailoring your resume for target positions boosts screening callbacks by over 300%. Check your recommended roles daily and apply with customized ATS resumes.
+            </p>
           </div>
 
-        </aside>
+          <div className="space-y-2 pt-2">
+            <button
+              onClick={() => setActiveTab('explore')}
+              className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl text-xs transition-all border border-neutral-700 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Explore All Sri Lankan Vacancies</span>
+              <IoArrowForwardOutline className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Global Modals */}
+      <TailorCvModal
+        isOpen={tailorModalOpen}
+        job={selectedJob}
+        onClose={() => {
+          setTailorModalOpen(false);
+          setSelectedJob(null);
+        }}
+        onApplyAssisted={(job, tailoredCvId) => {
+          setSelectedJob(job);
+          setSelectedTailoredCvId(tailoredCvId);
+          setApplyModalOpen(true);
+        }}
+      />
+
+      <AutoApplyModal
+        isOpen={applyModalOpen}
+        job={selectedJob}
+        tailoredCvId={selectedTailoredCvId}
+        onClose={() => {
+          setApplyModalOpen(false);
+          setSelectedJob(null);
+          setSelectedTailoredCvId(null);
+        }}
+        onApplySuccess={() => {
+          fetchStats();
+        }}
+      />
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
     </div>
   );
 };

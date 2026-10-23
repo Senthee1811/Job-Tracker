@@ -36,7 +36,8 @@ const scrapeRunSchema = new mongoose.Schema({
         default: "success"
     }
 }, {
-    timestamps: true
+    timestamps: true,
+    suppressReservedKeysWarning: true
 });
 
 export const ScrapeRun = mongoose.models.ScrapeRun || mongoose.model("ScrapeRun", scrapeRunSchema);

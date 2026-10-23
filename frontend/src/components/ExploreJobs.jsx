@@ -1,227 +1,282 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { SkeletonCard } from './SkeletonLoader';
+import TailorCvModal from './TailorCvModal';
 import { 
   IoBookmarkOutline, 
   IoBookmark, 
   IoLocationOutline, 
-  IoLogoLinkedin, 
-  IoFlashOutline, 
   IoBriefcaseOutline,
-  IoSearchOutline
+  IoSearchOutline,
+  IoOpenOutline,
+  IoSparklesOutline,
+  IoFlameOutline
 } from 'react-icons/io5';
 
 const ExploreJobs = ({ 
-  selectedSource, 
+  selectedSource = 'all', 
   setSelectedSource, 
   onAutoApply, 
-  bookmarks, 
+  bookmarks = [], 
   onToggleBookmark 
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [region, setRegion] = useState('Sri Lanka');
+  const [region, setRegion] = useState('all');
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tailorJob, setTailorJob] = useState(null);
+  const [tailorModalOpen, setTailorModalOpen] = useState(false);
 
-  // Fetch live scraped job opportunities
+  // Fetch vacancies from DB and scraper backend
   useEffect(() => {
-    const fetchLiveJobs = async () => {
+    const fetchVacancies = async () => {
       setLoading(true);
       setError('');
       try {
-        const query = searchQuery || 'React';
-        const data = await api.getLiveJobs(query, region);
-        setJobs(data.jobs || []);
+        const data = await api.getVacancies({
+          role: searchQuery,
+          source: selectedSource,
+          location: region,
+          limit: 18
+        });
+        if (data.jobs && data.jobs.length > 0) {
+          setJobs(data.jobs);
+        } else {
+          // Fallback to legacy live jobs endpoint
+          const liveData = await api.getLiveJobs(searchQuery || 'React', region);
+          setJobs(liveData.jobs || []);
+        }
       } catch (err) {
         console.error(err);
-        setError('Connection timed out. Loaded fallback listings.');
+        setError('Could not load vacancies. Please retry.');
         setJobs([]);
       } finally {
         setLoading(false);
       }
     };
 
-    // Debounce live searching to avoid excessive requests
     const delayDebounce = setTimeout(() => {
-      fetchLiveJobs();
-    }, 600);
+      fetchVacancies();
+    }, 300);
 
     return () => clearTimeout(delayDebounce);
-  }, [searchQuery, region]);
+  }, [searchQuery, region, selectedSource]);
 
-  const getSourceIcon = (source) => {
-    switch (source) {
-      case 'linkedin':
-        return <IoLogoLinkedin className='text-blue-500' size={18} />;
-      case 'xpressjobs':
-        return <IoBriefcaseOutline className='text-purple-600' size={18} />;
-      case 'rooster':
-        return <IoBriefcaseOutline className='text-orange-500' size={18} />;
-      default:
-        return <IoBriefcaseOutline className='text-neutral-500' size={18} />;
-    }
+  const sourcesList = [
+    { id: 'all', label: 'All Sources' },
+    { id: 'itpro', label: 'ITPro.lk' },
+    { id: 'xpressjobs', label: 'XpressJobs' },
+    { id: 'topjobs', label: 'TopJobs' },
+    { id: 'ikman', label: 'ikman' },
+    { id: 'rooster', label: 'Rooster' }
+  ];
+
+  const handleOpenTailor = (job) => {
+    setTailorJob(job);
+    setTailorModalOpen(true);
   };
 
-  const filteredJobs = jobs.filter(job => {
-    return selectedSource === 'all' || job.source === selectedSource;
-  });
-
   return (
-    <div className='max-w-5xl mx-auto px-6 py-12 select-none'>
+    <div className='max-w-6xl mx-auto px-4 sm:px-6 py-10 select-none space-y-8 animate-in fade-in duration-300'>
       
+      {/* Title */}
+      <div className='text-center space-y-2'>
+        <h3 className='text-3xl font-extrabold text-neutral-900 tracking-tight leading-tight'>
+          Explore Sri Lanka <span className='text-[#a3e635]'>IT Vacancies</span>
+        </h3>
+        <p className='text-xs md:text-sm text-neutral-500 font-medium max-w-lg mx-auto leading-relaxed'>
+          Discover active engineering roles, customize your ATS resume with Gemini, and track your applications.
+        </p>
+      </div>
+
       {/* Search and Filters toolbar */}
-      <div className='flex flex-col md:flex-row items-center justify-between gap-6 mb-10'>
-        
+      <div className='space-y-4'>
         {/* Platform source tabs */}
-        <div className='flex flex-wrap gap-2.5 items-center justify-center bg-white border-2 border-black p-1.5 rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]'>
-          {['all', 'linkedin', 'xpressjobs', 'rooster'].map((src) => (
+        <div className='flex flex-wrap gap-2 items-center justify-center'>
+          {sourcesList.map((src) => (
             <button
-              key={src}
-              onClick={() => setSelectedSource(src)}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold uppercase transition-all cursor-pointer ${
-                selectedSource === src
-                  ? 'bg-[#a3e635] text-neutral-900 border border-neutral-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                  : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50'
+              key={src.id}
+              onClick={() => setSelectedSource(src.id)}
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border-2 ${
+                selectedSource === src.id
+                  ? 'bg-neutral-900 text-white border-neutral-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]'
+                  : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900'
               }`}
             >
-              {src === 'all' ? 'All Boards' : src === 'xpressjobs' ? 'XpressJobs' : src === 'rooster' ? 'Rooster' : 'LinkedIn'}
+              {src.label}
             </button>
           ))}
         </div>
 
-        {/* Region & Search controls */}
-        <div className='flex gap-3 w-full md:w-auto items-center justify-end'>
-          {/* Region/Country selector */}
-          <div className='flex items-center bg-white border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] px-3 py-2'>
+        {/* Inputs */}
+        <div className='flex flex-col sm:flex-row items-center gap-3 max-w-3xl mx-auto'>
+          <div className='relative flex-1 w-full'>
+            <IoSearchOutline className='absolute left-3.5 top-3 w-4 h-4 text-neutral-400' />
+            <input 
+              type="text" 
+              placeholder="Search by title, skill, or employer (React, Python, QA, DevOps)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className='w-full text-xs pl-10 pr-4 py-2.5 bg-white border-2 border-neutral-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-400 font-sans shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+            />
+          </div>
+
+          <div className='relative w-full sm:w-48'>
+            <IoLocationOutline className='absolute left-3.5 top-3 w-4 h-4 text-neutral-400' />
             <select
               value={region}
               onChange={(e) => setRegion(e.target.value)}
-              className='bg-transparent text-neutral-800 text-xs font-bold outline-none pr-4 cursor-pointer'
+              className='w-full text-xs pl-10 pr-6 py-2.5 bg-white border-2 border-neutral-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-lime-400 font-sans shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] appearance-none cursor-pointer'
             >
-              <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
-              <option value="United States">🇺🇸 United States</option>
-              <option value="India">🇮🇳 India</option>
-              <option value="Remote">🌐 Remote</option>
+              <option value="all">All Locations</option>
+              <option value="colombo">Colombo</option>
+              <option value="kandy">Kandy</option>
+              <option value="remote">Remote</option>
             </select>
           </div>
-
-          {/* Search bar */}
-          <div className='relative w-full md:w-64 flex items-center bg-white border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] px-3 py-2'>
-            <input
-              type="text"
-              placeholder="Search roles or skills..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className='bg-transparent text-neutral-800 placeholder-neutral-400 text-xs outline-none w-full pl-6'
-            />
-            <IoSearchOutline className='absolute left-3 text-neutral-500' size={18} />
-          </div>
         </div>
-
       </div>
 
-      {loading ? (
-        <div className='flex flex-col items-center justify-center py-20 gap-3'>
-          <div className='animate-spin rounded-full h-10 w-10 border-b-2 border-black'></div>
-          <span className='text-xs font-mono text-neutral-400 animate-pulse'>Scraping live job openings for you...</span>
-        </div>
-      ) : error ? (
-        <div className='bg-rose-50 border border-rose-200 text-rose-800 text-xs md:text-sm p-4 rounded-xl mb-6 font-semibold text-left'>
+      {error && (
+        <div className='p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs text-center font-bold'>
           {error}
         </div>
-      ) : null}
+      )}
 
-      {/* Grid of Job Cards */}
-      {!loading && (
-        <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-          {filteredJobs.length === 0 ? (
-            <div className='col-span-1 md:col-span-2 text-center py-16 bg-neutral-100/50 rounded-2xl border border-neutral-200'>
-              <p className='text-neutral-500 font-medium'>No active jobs match your search criteria. Try a different query!</p>
-            </div>
-          ) : (
-            filteredJobs.map((job) => {
-              const isBookmarked = bookmarks.some(b => b.id === job.id);
-              return (
-                <div 
-                  key={job.id} 
-                  className='bg-white rounded-2xl border-2 border-neutral-900 p-5 flex flex-col justify-between gap-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all text-left'
-                >
-                  
-                  {/* Top Section */}
-                  <div className='flex justify-between items-start gap-4'>
-                    <div className='flex items-center gap-2.5'>
-                      <div className='w-10 h-10 rounded-xl bg-neutral-50 border border-neutral-200 flex items-center justify-center shadow-sm'>
-                        {getSourceIcon(job.source)}
-                      </div>
-                      <div>
-                        <h4 className='font-extrabold text-sm text-neutral-900 leading-tight'>{job.title}</h4>
-                        <p className='text-xxs text-neutral-500 font-bold uppercase mt-0.5'>{job.company}</p>
-                      </div>
+      {/* Results Grid */}
+      {loading ? (
+        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5'>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      ) : jobs.length === 0 ? (
+        <div className='p-12 bg-white border-2 border-neutral-900 rounded-2xl text-center space-y-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'>
+          <IoBriefcaseOutline className='w-12 h-12 text-neutral-300 mx-auto' />
+          <h4 className='font-extrabold text-neutral-900 text-sm'>No vacancies matched your criteria</h4>
+          <p className='text-xs text-neutral-500 max-w-sm mx-auto'>
+            Try expanding your search query or switching to "All Sources".
+          </p>
+        </div>
+      ) : (
+        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5'>
+          {jobs.map((job) => {
+            const jobId = job._id || job.id || job.dedupeHash;
+            const isSaved = bookmarks.some(b => (b._id || b.id || b.dedupeHash) === jobId);
+
+            return (
+              <div 
+                key={jobId} 
+                className='bg-white rounded-2xl border-2 border-neutral-900 p-5 flex flex-col justify-between gap-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all text-left'
+              >
+                <div className='space-y-3'>
+                  {/* Top Badges */}
+                  <div className='flex justify-between items-start gap-2'>
+                    <div className='flex items-center gap-1.5 flex-wrap'>
+                      <span className='px-2 py-0.5 bg-neutral-100 text-neutral-800 text-[10px] font-extrabold uppercase rounded-md border border-neutral-300 font-mono'>
+                        {job.source || 'SRI LANKA'}
+                      </span>
+                      {job.isNewToday && (
+                        <span className='px-2 py-0.5 bg-lime-400 text-neutral-950 text-[10px] font-black uppercase rounded-md border border-neutral-900 flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'>
+                          <IoFlameOutline className='w-3 h-3 text-neutral-900' />
+                          New Today
+                        </span>
+                      )}
                     </div>
-                    
+
                     <button 
                       onClick={() => onToggleBookmark(job)}
                       className='text-neutral-400 hover:text-rose-500 transition-colors p-1 cursor-pointer'
+                      title="Bookmark vacancy"
                     >
-                      {isBookmarked ? (
-                        <IoBookmark className='text-rose-500' size={18} />
+                      {isSaved ? (
+                        <IoBookmark className='text-lime-600' size={18} />
                       ) : (
                         <IoBookmarkOutline size={18} />
                       )}
                     </button>
                   </div>
 
-                  {/* Body description */}
+                  {/* Title & Employer */}
                   <div>
-                    <p className='text-xxs text-neutral-600 font-medium leading-relaxed line-clamp-3'>
-                      {job.requirements}
+                    <h4 className='font-extrabold text-sm text-neutral-900 leading-tight line-clamp-2'>
+                      {job.title}
+                    </h4>
+                    <p className='text-xs text-neutral-500 font-bold uppercase mt-1'>
+                      {job.company}
                     </p>
                   </div>
 
-                  {/* Footer options */}
-                  <div className='flex justify-between items-center border-t border-neutral-100 pt-3.5 mt-2'>
-                    <div className='flex gap-2.5 items-center text-xxs text-neutral-500 font-bold uppercase'>
-                      <span className='flex items-center gap-1'>
-                        <IoLocationOutline size={12} />
-                        {job.location}
-                      </span>
-                      <span className='bg-neutral-100 px-2 py-0.5 rounded-full'>
-                        {job.mode}
-                      </span>
-                    </div>
+                  {/* Description Snippet */}
+                  <p className='text-xs text-neutral-600 font-sans leading-relaxed line-clamp-3'>
+                    {job.description || job.requirements || `${job.title} vacancy at ${job.company}. Click Tailor CV or Apply to review options.`}
+                  </p>
+                </div>
 
-                    <div className='flex items-center gap-2'>
-                      {job.link && (
-                        <a 
-                          href={job.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className='inline-flex items-center gap-1 text-[10px] font-extrabold text-[#0077b5] hover:text-[#006297] border border-neutral-200 hover:border-black bg-neutral-50 px-2 py-1.5 rounded-lg transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-x-[0.5px] active:translate-y-[0.5px] active:shadow-none'
-                        >
-                          <IoLogoLinkedin size={12} />
-                          See Job
-                        </a>
-                      )}
-                      <button
-                        onClick={() => onAutoApply(job)}
-                        className='bg-[#a3e635] text-neutral-900 font-bold text-xxs px-3.5 py-1.5 border-2 border-black rounded-lg hover:bg-lime-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer flex items-center gap-1'
-                      >
-                        <IoFlashOutline size={13} />
-                        Auto Apply
-                      </button>
-                    </div>
+                {/* Footer Controls */}
+                <div className='pt-3 border-t border-neutral-100 space-y-3'>
+                  <div className='flex justify-between items-center text-[11px] text-neutral-500 font-mono'>
+                    <span className='flex items-center gap-1'>
+                      <IoLocationOutline size={12} />
+                      {job.location || 'Sri Lanka'}
+                    </span>
+                    <span className='bg-neutral-100 px-2 py-0.5 rounded font-bold'>
+                      {job.mode || 'hybrid'}
+                    </span>
                   </div>
 
+                  <div className='flex items-center justify-end gap-2'>
+                    {job.applyUrl && (
+                      <a 
+                        href={job.applyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className='p-2 text-neutral-600 hover:text-black border border-neutral-300 rounded-lg transition-colors'
+                        title="View Official Listing"
+                      >
+                        <IoOpenOutline size={15} />
+                      </a>
+                    )}
+
+                    <button
+                      onClick={() => handleOpenTailor(job)}
+                      className='bg-neutral-900 text-white font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-neutral-800 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)]'
+                    >
+                      Tailor CV
+                    </button>
+
+                    <button
+                      onClick={() => onAutoApply(job)}
+                      className='bg-[#a3e635] text-neutral-950 font-extrabold text-xs px-3.5 py-1.5 border-2 border-neutral-900 rounded-lg hover:bg-lime-400 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer'
+                    >
+                      Apply
+                    </button>
+                  </div>
                 </div>
-              );
-            })
-          )}
+
+              </div>
+            );
+          })}
         </div>
       )}
+
+      {/* Tailor Modal */}
+      <TailorCvModal
+        isOpen={tailorModalOpen}
+        job={tailorJob}
+        onClose={() => {
+          setTailorModalOpen(false);
+          setTailorJob(null);
+        }}
+        onApplyAssisted={(job, tailoredCvId) => {
+          setTailorModalOpen(false);
+          onAutoApply(job, tailoredCvId);
+        }}
+      />
 
     </div>
   );
 };
 
-export { ExploreJobs as default };
-export const MOCK_JOBS = []; // Export empty mock array for backward compatibility
+export default ExploreJobs;
