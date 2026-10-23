@@ -5,10 +5,13 @@ import { rankJobsForCandidate, invalidateScoreCacheForCv } from "../services/sco
 
 /**
  * Fallback seed jobs for initial testing before scrapers run.
+ * Uses valid 24-character ObjectId strings with legacyId backward-compatibility.
  */
-const FALLBACK_SEED_JOBS = [
+export const FALLBACK_SEED_JOBS = [
     {
-        _id: "seed-job-1",
+        _id: "65a000000000000000000001",
+        legacyId: "seed-job-1",
+        dedupeHash: "seed-hash-1",
         title: "Full Stack Software Engineer (React / Node.js)",
         company: "Sysco LABS Sri Lanka",
         location: "Colombo, Sri Lanka",
@@ -22,7 +25,9 @@ const FALLBACK_SEED_JOBS = [
         postedAt: new Date()
     },
     {
-        _id: "seed-job-2",
+        _id: "65a000000000000000000002",
+        legacyId: "seed-job-2",
+        dedupeHash: "seed-hash-2",
         title: "Frontend Developer (React / Next.js / Tailwind)",
         company: "WSO2",
         location: "Colombo, Sri Lanka",
@@ -36,7 +41,9 @@ const FALLBACK_SEED_JOBS = [
         postedAt: new Date()
     },
     {
-        _id: "seed-job-3",
+        _id: "65a000000000000000000003",
+        legacyId: "seed-job-3",
+        dedupeHash: "seed-hash-3",
         title: "Backend Engineer (Node.js / Express / PostgreSQL)",
         company: "Virtusa",
         location: "Colombo, Sri Lanka",
@@ -50,7 +57,9 @@ const FALLBACK_SEED_JOBS = [
         postedAt: new Date()
     },
     {
-        _id: "seed-job-4",
+        _id: "65a000000000000000000004",
+        legacyId: "seed-job-4",
+        dedupeHash: "seed-hash-4",
         title: "Associate DevOps / Cloud Engineer",
         company: "IFS Sri Lanka",
         location: "Colombo, Sri Lanka",
@@ -82,10 +91,15 @@ export const getRecommendations = async (req, res) => {
 
         const activeCv = await CV.findOne({ userId, isActive: true });
 
-        // Fetch jobs from database (or fallback seeds if scraper has not populated yet)
+        // Fetch jobs from database (or populate fallback seeds if scraper has not populated yet)
         let jobs = await Job.find().sort({ postedAt: -1 }).limit(100).lean();
         if (jobs.length === 0) {
-            jobs = FALLBACK_SEED_JOBS;
+            try {
+                await Job.insertMany(FALLBACK_SEED_JOBS, { ordered: false });
+                jobs = await Job.find().sort({ postedAt: -1 }).limit(100).lean();
+            } catch (seedErr) {
+                jobs = FALLBACK_SEED_JOBS;
+            }
         }
 
         // Run hybrid scoring & ranking
@@ -130,7 +144,12 @@ export const recomputeRecommendations = async (req, res) => {
         // Fetch and re-rank
         let jobs = await Job.find().sort({ postedAt: -1 }).limit(100).lean();
         if (jobs.length === 0) {
-            jobs = FALLBACK_SEED_JOBS;
+            try {
+                await Job.insertMany(FALLBACK_SEED_JOBS, { ordered: false });
+                jobs = await Job.find().sort({ postedAt: -1 }).limit(100).lean();
+            } catch (seedErr) {
+                jobs = FALLBACK_SEED_JOBS;
+            }
         }
 
         const rankedJobs = await rankJobsForCandidate(activeCv, user, jobs, 5);

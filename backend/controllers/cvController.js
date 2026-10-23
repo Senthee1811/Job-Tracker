@@ -8,7 +8,42 @@ import { extractTextFromBuffer } from "../services/cvParserService.js";
 import { generateTailoredCv, parseCvToProfile } from "../services/geminiService.js";
 import { generateAtsPdfBuffer } from "../services/pdfService.js";
 import { invalidateScoreCacheForCv } from "../services/scoringService.js";
+import { FALLBACK_SEED_JOBS } from "./recommendationController.js";
+import mongoose from "mongoose";
 import path from "path";
+
+/**
+ * Safely resolves a job document by ObjectId, dedupeHash, fallback seed ID, or request payload.
+ * Prevents Mongoose CastError on seed or string IDs.
+ */
+const resolveJob = async (jobId, payload = {}) => {
+    let job = null;
+    if (jobId && mongoose.Types.ObjectId.isValid(jobId)) {
+        job = await Job.findById(jobId).lean();
+    }
+    if (!job && jobId) {
+        job = await Job.findOne({ dedupeHash: jobId }).lean();
+    }
+    if (!job && jobId) {
+        const seed = FALLBACK_SEED_JOBS.find(
+            s => s._id === jobId || s.id === jobId || s.legacyId === jobId || s._id?.toString() === jobId || String(jobId).includes("seed-job")
+        );
+        if (seed) job = { ...seed };
+    }
+    if (!job) {
+        job = {
+            title: payload.title || payload.jobTitle || "Software Vacancy",
+            company: payload.company || payload.jobCompany || "Direct Employer",
+            requirements: payload.requirements || payload.jobRequirements || "Software engineering requirements",
+            skills: payload.skills || payload.jobSkills || ["Software Engineering"],
+            salary: payload.salary || "Negotiable",
+            location: payload.location || "Sri Lanka",
+            mode: payload.mode || "hybrid",
+            applyUrl: payload.applyUrl || payload.link || "https://syscolabs.lk/careers"
+        };
+    }
+    return job;
+};
 
 /**
  * Handles CV Upload:
@@ -257,20 +292,8 @@ export const tailorCvHandler = async (req, res) => {
 
         const activeCv = await CV.findOne({ userId, isActive: true });
 
-        // Retrieve job document or create fallback structure
-        let job = await Job.findById(jobId).lean();
-        if (!job) {
-            job = await Job.findOne({ dedupeHash: jobId }).lean();
-        }
-        if (!job) {
-            // Check if jobId is a custom/temporary id with job payload
-            job = {
-                title: req.body.jobTitle || "Software Engineer",
-                company: req.body.jobCompany || "Sri Lankan Tech Company",
-                requirements: req.body.jobRequirements || ["Web development experience", "Modern JavaScript/TypeScript"],
-                skills: req.body.jobSkills || ["React", "Node.js"]
-            };
-        }
+        // Retrieve job document safely without CastError
+        const job = await resolveJob(jobId, req.body);
 
         // Construct user profile
         const userProfile = {
@@ -395,24 +418,11 @@ export const assistedApplyHandler = async (req, res) => {
             return res.status(404).json({ message: "User not found" });
         }
 
-        let job = await Job.findById(jobId).lean();
-        if (!job) {
-            job = await Job.findOne({ dedupeHash: jobId }).lean();
-        }
-        if (!job) {
-            job = {
-                title: req.body.title || "Software Vacancy",
-                company: req.body.company || "Direct Employer",
-                requirements: req.body.requirements || "Software requirements",
-                salary: req.body.salary || "Negotiable",
-                location: req.body.location || "Sri Lanka",
-                mode: req.body.mode || "hybrid",
-                applyUrl: req.body.applyUrl || "https://jobtracker.local"
-            };
-        }
+        // Retrieve job safely without Mongoose CastError
+        const job = await resolveJob(jobId, req.body);
 
         let tailoredPdfUrl = "";
-        if (tailoredCvId) {
+        if (tailoredCvId && mongoose.Types.ObjectId.isValid(tailoredCvId)) {
             const tailoredCv = await TailoredCV.findById(tailoredCvId);
             if (tailoredCv) {
                 tailoredPdfUrl = tailoredCv.pdfUrl;

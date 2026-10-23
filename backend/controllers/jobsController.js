@@ -1,6 +1,7 @@
 import { Job } from "../models/Job.js";
 import { executeScrapeCycle } from "../services/schedulerService.js";
 import { getScrapersHealth } from "../services/scrapers/index.js";
+import { FALLBACK_SEED_JOBS } from "./recommendationController.js";
 
 /**
  * GET /api/jobs
@@ -41,7 +42,16 @@ export const getVacancies = async (req, res) => {
             query.jobType = { $regex: jobType, $options: "i" };
         }
 
-        const total = await Job.countDocuments(query);
+        let total = await Job.countDocuments(query);
+        if (total === 0 && !searchTerm && !location && !source && !jobType) {
+            try {
+                await Job.insertMany(FALLBACK_SEED_JOBS, { ordered: false });
+                total = await Job.countDocuments(query);
+            } catch (seedErr) {
+                // Ignore duplicate errors
+            }
+        }
+
         const rawJobs = await Job.find(query)
             .sort({ postedAt: -1, scrapedAt: -1 })
             .skip((page - 1) * limit)

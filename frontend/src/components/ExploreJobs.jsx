@@ -201,7 +201,20 @@ const ExploreJobs = ({
                   {/* Title & Employer */}
                   <div>
                     <h4 className='font-extrabold text-sm text-neutral-900 leading-tight line-clamp-2'>
-                      {job.title}
+                      {job.applyUrl ? (
+                        <a
+                          href={job.applyUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className='hover:text-lime-700 hover:underline inline-flex items-center gap-1.5'
+                          title="Navigate to live job portal"
+                        >
+                          <span>{job.title}</span>
+                          <IoOpenOutline className='w-3.5 h-3.5 text-neutral-400 flex-shrink-0' />
+                        </a>
+                      ) : (
+                        job.title
+                      )}
                     </h4>
                     <p className='text-xs text-neutral-500 font-bold uppercase mt-1'>
                       {job.company}
@@ -232,10 +245,11 @@ const ExploreJobs = ({
                         href={job.applyUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className='p-2 text-neutral-600 hover:text-black border border-neutral-300 rounded-lg transition-colors'
-                        title="View Official Listing"
+                        className='inline-flex items-center gap-1 px-2.5 py-1.5 text-neutral-700 hover:text-black border border-neutral-300 rounded-lg hover:bg-neutral-100 transition-colors text-xs font-bold'
+                        title="Navigate to Official Job Listing"
                       >
-                        <IoOpenOutline size={15} />
+                        <IoOpenOutline size={14} />
+                        <span>Portal</span>
                       </a>
                     )}
 

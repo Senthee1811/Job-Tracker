@@ -9,7 +9,8 @@ import {
   IoCheckmarkCircleOutline,
   IoShieldCheckmarkOutline,
   IoArrowForwardOutline,
-  IoAlertCircleOutline
+  IoAlertCircleOutline,
+  IoOpenOutline
 } from 'react-icons/io5';
 
 const TailorCvModal = ({ isOpen, job, onClose, onApplyAssisted }) => {
@@ -141,9 +142,22 @@ const TailorCvModal = ({ isOpen, job, onClose, onApplyAssisted }) => {
               <h3 className="font-extrabold text-neutral-900 text-lg leading-tight">
                 Tailor CV for {job.title}
               </h3>
-              <p className="text-xs text-neutral-500 font-medium">
-                {job.company} • {job.location || 'Sri Lanka'}
-              </p>
+              <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                <span className="text-xs text-neutral-500 font-medium">
+                  {job.company} • {job.location || 'Sri Lanka'}
+                </span>
+                {(job.applyUrl || job.link) && (
+                  <a
+                    href={job.applyUrl || job.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-lime-800 bg-lime-100 hover:bg-lime-200 px-2 py-0.5 rounded border border-lime-300 transition-colors shadow-sm"
+                  >
+                    <span>View Listing Portal</span>
+                    <IoOpenOutline className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
             </div>
           </div>
           <button

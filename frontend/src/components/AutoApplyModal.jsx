@@ -159,6 +159,22 @@ const AutoApplyModal = ({ isOpen, job, tailoredCvId = null, onClose, onApplySucc
                     <span>Tailored ATS Resume will be linked</span>
                   </div>
                 )}
+
+                {/* Direct Portal Navigation Option */}
+                {(job.applyUrl || job.link) && (
+                  <div className="pt-2 mt-2 border-t border-neutral-100 flex items-center justify-between">
+                    <span className="text-[11px] text-neutral-500 font-medium">Official Portal:</span>
+                    <a
+                      href={job.applyUrl || job.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 font-bold text-xs text-lime-800 bg-lime-100 hover:bg-lime-200 px-3 py-1.5 rounded-lg border border-lime-300 transition-colors shadow-sm"
+                    >
+                      <span>Open Portal Listing</span>
+                      <IoOpenOutline className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
               </div>
 
               {/* Notes Input */}
@@ -176,23 +192,39 @@ const AutoApplyModal = ({ isOpen, job, tailoredCvId = null, onClose, onApplySucc
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-2 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2.5 text-neutral-600 font-bold text-xs hover:text-neutral-900 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmApply}
-                  disabled={submitting}
-                  className="px-5 py-2.5 bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-xl hover:bg-lime-400 transition-all text-xs cursor-pointer shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:opacity-50 flex items-center gap-2"
-                >
-                  {submitting ? 'Recording Application...' : 'Open Portal & Track Application'}
-                  <IoOpenOutline className="w-4 h-4" />
-                </button>
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="w-full sm:w-auto">
+                  {(job.applyUrl || job.link) && (
+                    <a
+                      href={job.applyUrl || job.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold text-xs border border-neutral-300 rounded-xl transition-all"
+                    >
+                      <span>View Listing on Portal</span>
+                      <IoOpenOutline className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2.5 text-neutral-600 font-bold text-xs hover:text-neutral-900 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmApply}
+                    disabled={submitting}
+                    className="px-5 py-2.5 bg-[#a3e635] text-neutral-950 font-extrabold border-2 border-neutral-900 rounded-xl hover:bg-lime-400 transition-all text-xs cursor-pointer shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {submitting ? 'Recording Application...' : 'Open Portal & Track Application'}
+                    <IoOpenOutline className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </>
           )}

@@ -25,7 +25,8 @@ import {
   IoFlameOutline,
   IoArrowForwardOutline,
   IoTrendingUpOutline,
-  IoDocumentTextOutline
+  IoDocumentTextOutline,
+  IoOpenOutline
 } from 'react-icons/io5';
 
 const Dashboard = ({ setActiveTab }) => {
@@ -400,7 +401,20 @@ const Dashboard = ({ setActiveTab }) => {
                           </span>
                         </div>
                         <h4 className="font-extrabold text-neutral-900 text-base leading-snug">
-                          {job.title}
+                          {job.applyUrl || job.link ? (
+                            <a
+                              href={job.applyUrl || job.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hover:text-lime-700 hover:underline inline-flex items-center gap-1.5"
+                              title="Navigate to live job portal"
+                            >
+                              <span>{job.title}</span>
+                              <IoOpenOutline className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                            </a>
+                          ) : (
+                            job.title
+                          )}
                         </h4>
                         <p className="text-xs text-neutral-600 font-medium">
                           {job.company} • {job.location || 'Sri Lanka'}
@@ -510,6 +524,18 @@ const Dashboard = ({ setActiveTab }) => {
                           <IoBookmarkOutline className="w-4 h-4 text-neutral-500" />
                         )}
                       </button>
+
+                      {(job.applyUrl || job.link) && (
+                        <a
+                          href={job.applyUrl || job.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 border border-neutral-300 rounded-xl hover:bg-neutral-100 text-neutral-700 hover:text-black transition-colors"
+                          title="Open Official Job Listing in New Tab"
+                        >
+                          <IoOpenOutline className="w-4 h-4" />
+                        </a>
+                      )}
 
                       <button
                         onClick={() => handleOpenTailor(job)}
