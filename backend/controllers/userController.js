@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt"; 
 import { User } from "../models/User.js"; 
 import jwt from "jsonwebtoken";
+import { validatePreferences, DEFAULT_PREFERENCES } from "../lib/preferenceConstants.js";
 
 
 export const registerUser = async (req, res) => {
@@ -27,7 +28,11 @@ export const registerUser = async (req, res) => {
             email
         }); 
 
-        const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+        const token = jwt.sign(
+            { id: newUser._id, tokenVersion: newUser.tokenVersion || 0 },
+            process.env.JWT_SECRET,
+            { expiresIn: "1d" }
+        );
 
         if(!token){
             return res.status(400).json({ message: "Cannot Generate Token " });
@@ -57,7 +62,11 @@ export const loginUser = async (req,res) => {
             return res.status(400).json({ message: "Invalid Password "});
         }
 
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d"}); 
+        const token = jwt.sign(
+            { id: user._id, tokenVersion: user.tokenVersion || 0 },
+            process.env.JWT_SECRET,
+            { expiresIn: "1d" }
+        ); 
 
         if(!token){
             return res.status(400).json({ message: "Cannot Generate Token " });
@@ -158,6 +167,60 @@ export const uploadCV = async (req, res) => {
     } catch (error) {
         console.error("Error uploading CV", error);
         return res.status(500).json({ message: "Cannot upload CV" });
+    }
+};
+
+/**
+ * GET /api/users/preferences
+ * Returns the authenticated user's job preferences.
+ */
+export const getUserPreferences = async (req, res) => {
+    const userId = req.user?.userId;
+    try {
+        const user = await User.findById(userId).select("preferences");
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        return res.status(200).json({
+            preferences: user.preferences || DEFAULT_PREFERENCES
+        });
+    } catch (error) {
+        console.error("Error fetching preferences:", error);
+        return res.status(500).json({ message: "Cannot fetch preferences" });
+    }
+};
+
+/**
+ * PUT /api/users/preferences
+ * Validates and updates the authenticated user's job preferences.
+ */
+export const updateUserPreferences = async (req, res) => {
+    const userId = req.user?.userId;
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const { valid, errors, sanitized } = validatePreferences(req.body);
+        if (!valid) {
+            return res.status(400).json({
+                message: "Validation failed for job preferences",
+                errors
+            });
+        }
+
+        user.preferences = sanitized;
+        await user.save();
+
+        return res.status(200).json({
+            message: "Job preferences saved successfully",
+            preferences: user.preferences,
+            user
+        });
+    } catch (error) {
+        console.error("Error updating preferences:", error);
+        return res.status(500).json({ message: "Cannot update preferences" });
     }
 };
 

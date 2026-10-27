@@ -11,6 +11,14 @@ const cvSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    resource_type: {
+        type: String,
+        default: "raw"
+    },
+    type: {
+        type: String,
+        default: "authenticated"
+    },
     secureUrl: {
         type: String,
         required: true
@@ -41,6 +49,10 @@ const cvSchema = new mongoose.Schema({
         type: String,
         default: ""
     },
+    documentModel: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
+    },
     structuredProfile: {
         skills: [{ type: String }],
         yearsOfExperience: { type: Number, default: 0 },
@@ -48,6 +60,24 @@ const cvSchema = new mongoose.Schema({
         education: [{ type: mongoose.Schema.Types.Mixed }],
         projects: [{ type: mongoose.Schema.Types.Mixed }],
         certifications: [{ type: mongoose.Schema.Types.Mixed }]
+    },
+    analysisReport: {
+        overallScore: { type: Number, default: 0 },
+        atsScore: { type: Number, default: 0 },
+        impactScore: { type: Number, default: 0 },
+        brevityScore: { type: Number, default: 0 },
+        skillsScore: { type: Number, default: 0 },
+        summary: { type: String, default: "" },
+        strengths: [{ type: String }],
+        weaknesses: [{ type: String }],
+        missingKeywords: [{ type: String }],
+        actionableSuggestions: [{
+            section: { type: String },
+            issue: { type: String },
+            recommendation: { type: String }
+        }],
+        tailoredRoles: [{ type: String }],
+        analyzedAt: { type: Date }
     }
 }, {
     timestamps: true

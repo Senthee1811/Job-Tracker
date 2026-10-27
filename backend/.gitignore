@@ -1,5 +1,15 @@
-#Node Modules
-/node_modules 
+# Dependencies
+/node_modules
 
-#dotenv
+# Environment variables
 .env
+.env.local
+.env.*.local
+
+# Ephemeral uploads & temporary files
+/uploads
+/tmp
+*.log
+
+# Vercel deployment cache
+.vercel

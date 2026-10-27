@@ -3,12 +3,33 @@ import { User } from "../models/User.js";
 import { Job } from "../models/Job.js";
 import { Application } from "../models/Application.js";
 import { TailoredCV } from "../models/TailoredCV.js";
-import { uploadBufferToCloudinary, deleteCloudinaryAsset, isCloudinaryConfigured } from "../services/cloudinaryService.js";
+import {
+    uploadBufferToCloudinary,
+    deleteCloudinaryAsset,
+    isCloudinaryConfigured,
+    generateSignedDownloadUrl
+} from "../services/cloudinaryService.js";
 import { extractTextFromBuffer } from "../services/cvParserService.js";
-import { generateTailoredCv, parseCvToProfile } from "../services/geminiService.js";
-import { generateAtsPdfBuffer } from "../services/pdfService.js";
+import {
+    generateTailoredCv,
+    generateCvPatch,
+    parseCvToProfile,
+    analyzeCvDetailed
+} from "../services/geminiService.js";
+import {
+    generateAtsPdfBuffer,
+    generateCvAnalysisPdfBuffer,
+    generateDocumentModelPdfBuffer
+} from "../services/pdfService.js";
+import {
+    parseCvToDocumentModel,
+    applyEditsToDocumentModel,
+    applyEditsToDocxBuffer
+} from "../services/documentModelService.js";
+import { validatePatchEdits } from "../services/patchValidationService.js";
 import { invalidateScoreCacheForCv } from "../services/scoringService.js";
 import { FALLBACK_SEED_JOBS } from "./recommendationController.js";
+import { renderLatexResume, renderLatexFromDocumentModel } from "../lib/latexUtils.js";
 import mongoose from "mongoose";
 import path from "path";
 
@@ -93,23 +114,27 @@ export const uploadCVHandler = async (req, res) => {
             extractedText = "";
         }
 
-        // 3. Upload to Cloudinary (or provide local URL if Cloudinary not yet configured)
+        // 3. Upload to Cloudinary with authenticated raw resource type
         let publicId = `local-cv-${userId}-${Date.now()}`;
-        let secureUrl = "";
         let bytes = file.size;
         let format = ext.replace(".", "");
+        let resourceType = "raw";
+        let uploadType = "authenticated";
 
         if (isCloudinaryConfigured()) {
-            const uploadResult = await uploadBufferToCloudinary(file.buffer, originalName);
+            const uploadResult = await uploadBufferToCloudinary(file.buffer, originalName, "job-tracker/cvs", {
+                resource_type: "raw",
+                type: "authenticated",
+                access_mode: "authenticated"
+            });
             publicId = uploadResult.publicId;
-            secureUrl = uploadResult.secureUrl;
             bytes = uploadResult.bytes;
             format = uploadResult.format;
+            resourceType = uploadResult.resourceType || "raw";
+            uploadType = uploadResult.type || "authenticated";
         } else {
-            // Unconfigured warning placeholder for development
-            secureUrl = `https://res.cloudinary.com/demo/raw/upload/${publicId}.${format}`;
             console.warn(
-                "Warning: Cloudinary credentials not provided in backend/.env. Using placeholder asset reference."
+                "Warning: Cloudinary credentials not provided in backend/.env. Using local asset reference."
             );
         }
 
@@ -117,7 +142,10 @@ export const uploadCVHandler = async (req, res) => {
         const latestCv = await CV.findOne({ userId }).sort({ version: -1 });
         const nextVersion = latestCv ? latestCv.version + 1 : 1;
 
-        // 5. Parse skills and structured credentials from extracted CV text
+        // 5. Parse DocumentModel (preserving exact section order, headings, styleHints, and blocks)
+        const documentModel = parseCvToDocumentModel(extractedText, originalName, file.buffer);
+
+        // 6. Parse skills and structured credentials from extracted CV text
         let structuredProfile = {
             skills: user.skills || [],
             yearsOfExperience: 0,
@@ -145,28 +173,32 @@ export const uploadCVHandler = async (req, res) => {
             }
         }
 
-        // 6. Deactivate previous versions
+        // 7. Deactivate previous versions
         await CV.updateMany({ userId }, { isActive: false });
 
-        // 7. Create new CV document
+        // 8. Create new CV document with internal authenticated endpoint instead of raw Cloudinary URL
         const newCv = new CV({
             userId,
             publicId,
-            secureUrl,
+            resource_type: resourceType,
+            type: uploadType,
+            secureUrl: "/api/cv/download/pending",
             originalName,
             format,
             bytes,
             version: nextVersion,
             isActive: true,
             extractedText,
+            documentModel,
             structuredProfile
         });
 
+        newCv.secureUrl = `/api/cv/download/${newCv._id}`;
         await newCv.save();
         invalidateScoreCacheForCv(newCv._id.toString());
 
-        // 8. Update User document
-        user.cvPath = secureUrl;
+        // 9. Update User document with internal authenticated download path
+        user.cvPath = `/api/cv/download/${newCv._id}`;
         user.cvName = originalName;
         if (extractedText) {
             user.resumeText = extractedText;
@@ -176,6 +208,8 @@ export const uploadCVHandler = async (req, res) => {
         return res.status(201).json({
             message: "CV uploaded and processed successfully",
             cv: newCv,
+            documentModel,
+            completenessCheck: documentModel.completenessCheck,
             user,
             extractedSkills,
             structuredProfile
@@ -187,14 +221,18 @@ export const uploadCVHandler = async (req, res) => {
 };
 
 /**
- * Fetch all CV versions for the authenticated user.
+ * Fetch all CV versions for the authenticated user with internal authenticated download paths.
  */
 export const getCvHistory = async (req, res) => {
     const userId = req.user?.userId;
 
     try {
-        const cvs = await CV.find({ userId }).sort({ version: -1 });
-        return res.status(200).json({ cvs });
+        const cvs = await CV.find({ userId }).sort({ version: -1 }).lean();
+        const sanitizedCvs = cvs.map(cv => ({
+            ...cv,
+            secureUrl: `/api/cv/download/${cv._id}`
+        }));
+        return res.status(200).json({ cvs: sanitizedCvs });
     } catch (error) {
         console.error("Error fetching CV history:", error);
         return res.status(500).json({ message: "Failed to fetch CV versions" });
@@ -202,16 +240,17 @@ export const getCvHistory = async (req, res) => {
 };
 
 /**
- * Fetch active CV for authenticated user.
+ * Fetch active CV for authenticated user with internal authenticated download path.
  */
 export const getActiveCv = async (req, res) => {
     const userId = req.user?.userId;
 
     try {
-        const cv = await CV.findOne({ userId, isActive: true });
+        const cv = await CV.findOne({ userId, isActive: true }).lean();
         if (!cv) {
             return res.status(404).json({ message: "No active CV found for user" });
         }
+        cv.secureUrl = `/api/cv/download/${cv._id}`;
         return res.status(200).json({ cv });
     } catch (error) {
         console.error("Error fetching active CV:", error);
@@ -235,7 +274,7 @@ export const deleteCvVersion = async (req, res) => {
         // Delete from Cloudinary
         if (cv.publicId && !cv.publicId.startsWith("local-cv-")) {
             try {
-                await deleteCloudinaryAsset(cv.publicId, cv.format === "pdf" ? "auto" : "raw");
+                await deleteCloudinaryAsset(cv.publicId, cv.resource_type || "raw", cv.type || "authenticated");
             } catch (cloudErr) {
                 console.warn("Could not delete from Cloudinary:", cloudErr.message);
             }
@@ -252,7 +291,7 @@ export const deleteCvVersion = async (req, res) => {
                 await remainingLatest.save();
 
                 await User.findByIdAndUpdate(userId, {
-                    cvPath: remainingLatest.secureUrl,
+                    cvPath: `/api/cv/download/${remainingLatest._id}`,
                     cvName: remainingLatest.originalName,
                     resumeText: remainingLatest.extractedText
                 });
@@ -295,85 +334,95 @@ export const tailorCvHandler = async (req, res) => {
         // Retrieve job document safely without CastError
         const job = await resolveJob(jobId, req.body);
 
-        // Construct user profile
-        const userProfile = {
-            firstname: user.firstname,
-            lastname: user.lastname,
-            email: user.email,
-            linkedin: user.linkedin,
-            skills: activeCv?.structuredProfile?.skills?.length > 0
-                ? activeCv.structuredProfile.skills
-                : (user.skills || ["React", "JavaScript"]),
-            yearsOfExperience: activeCv?.structuredProfile?.yearsOfExperience || 2,
-            roles: activeCv?.structuredProfile?.roles || ["Software Developer"],
-            education: activeCv?.structuredProfile?.education || [
-                { institution: "University / Institute", degree: "BSc in Computing", year: "Graduated" }
-            ],
-            projects: activeCv?.structuredProfile?.projects || [
-                { title: "Portfolio Projects", description: "Full stack web applications", technologies: user.skills || ["React", "Node.js"] }
-            ],
-            experience: activeCv?.structuredProfile?.experience || [
-                {
-                    company: "Software Development Firm",
-                    role: "Software Developer",
-                    duration: "2024 - Present",
-                    bullets: [
-                        "Built scalable user interfaces and reusable UI component architectures.",
-                        "Optimized API response latency and database query performance."
-                    ]
-                }
-            ]
-        };
-
-        // 1. Generate or use edited tailored data
-        let tailoredData = customData;
-        if (!tailoredData) {
-            tailoredData = await generateTailoredCv(userProfile, job);
+        // 1. Obtain original DocumentModel
+        let originalModel = activeCv?.documentModel;
+        if (!originalModel || !originalModel.sections || originalModel.sections.length === 0) {
+            originalModel = parseCvToDocumentModel(
+                activeCv?.extractedText || user.resumeText || "",
+                activeCv?.originalName || "resume.pdf"
+            );
+            if (activeCv) {
+                activeCv.documentModel = originalModel;
+                await activeCv.save();
+            }
         }
 
-        // 2. Generate ATS single-column PDF buffer
-        const pdfBuffer = await generateAtsPdfBuffer(userProfile, tailoredData);
+        // 2. Generate or use submitted patch edits
+        let patch = req.body.customEdits || customData;
+        if (!patch) {
+            patch = await generateCvPatch(originalModel, job, {
+                onlyReorderSkills: req.body.onlyReorderSkills === true
+            });
+        }
 
-        // 3. Upload PDF to Cloudinary (or data URL fallback if unconfigured)
-        const filename = `Tailored_CV_${user.lastname}_${Date.now()}.pdf`;
-        let pdfUrl = "";
+        // 3. Validate patch server-side (enforce protected fields, rewording threshold, no fabricated entities)
+        const validation = validatePatchEdits(patch, originalModel);
+        const validatedPatch = validation.validatedPatch;
+
+        // 4. Apply validated edits to generate tailored DocumentModel
+        const { originalModel: orig, tailoredModel } = applyEditsToDocumentModel(originalModel, validatedPatch);
+
+        // 5. Generate PDF buffer directly from tailored DocumentModel (preserving original section order, headings, styleHints)
+        const pdfBuffer = await generateDocumentModelPdfBuffer(tailoredModel);
+
+        // 6. Upload PDF to Cloudinary with authenticated raw resource type
+        const safeCandidateName = (user.lastname || "Candidate").replace(/[^a-zA-Z0-9]/g, "");
+        const filename = `Tailored_CV_${safeCandidateName}_${Date.now()}.pdf`;
         let pdfPublicId = "";
+        let resourceType = "raw";
+        let uploadType = "authenticated";
 
         if (isCloudinaryConfigured()) {
-            const uploadResult = await uploadBufferToCloudinary(pdfBuffer, filename, "job-tracker/tailored-cvs");
-            pdfUrl = uploadResult.secureUrl;
+            const uploadResult = await uploadBufferToCloudinary(pdfBuffer, filename, "job-tracker/tailored-cvs", {
+                resource_type: "raw",
+                type: "authenticated",
+                access_mode: "authenticated"
+            });
             pdfPublicId = uploadResult.publicId;
+            resourceType = uploadResult.resourceType || "raw";
+            uploadType = uploadResult.type || "authenticated";
         } else {
-            pdfUrl = `data:application/pdf;base64,${pdfBuffer.toString("base64")}`;
             pdfPublicId = `local-tailored-${Date.now()}`;
         }
 
-        // 4. Upsert TailoredCV record
+        // 7. Generate compilable LaTeX source directly from the candidate's tailored DocumentModel
+        const texSource = renderLatexFromDocumentModel(tailoredModel);
+
+        // 8. Upsert TailoredCV record
         let tailoredCvDoc = await TailoredCV.findOne({ userId, jobId: String(jobId) });
-        if (tailoredCvDoc) {
-            tailoredCvDoc.tailoredData = tailoredData;
-            tailoredCvDoc.pdfUrl = pdfUrl;
-            tailoredCvDoc.pdfPublicId = pdfPublicId;
-            tailoredCvDoc.jobTitle = job.title;
-            tailoredCvDoc.jobCompany = job.company;
-            await tailoredCvDoc.save();
-        } else {
+        if (!tailoredCvDoc) {
             tailoredCvDoc = new TailoredCV({
                 userId,
-                jobId: String(jobId),
-                jobTitle: job.title,
-                jobCompany: job.company,
-                tailoredData,
-                pdfUrl,
-                pdfPublicId
+                jobId: String(jobId)
             });
-            await tailoredCvDoc.save();
         }
+        tailoredCvDoc.originalDocumentModel = orig;
+        tailoredCvDoc.tailoredDocumentModel = tailoredModel;
+        tailoredCvDoc.appliedEdits = validatedPatch;
+        tailoredCvDoc.tailoredData = tailoredModel; // for backward compatibility
+        tailoredCvDoc.publicId = pdfPublicId;
+        tailoredCvDoc.pdfPublicId = pdfPublicId;
+        tailoredCvDoc.resource_type = resourceType;
+        tailoredCvDoc.type = uploadType;
+        tailoredCvDoc.jobTitle = job.title;
+        tailoredCvDoc.jobCompany = job.company;
+        tailoredCvDoc.texSource = texSource;
+        tailoredCvDoc.hasDocx = activeCv?.format === "docx";
+        tailoredCvDoc.pdfUrl = `/api/cv/tailored/${tailoredCvDoc._id}/pdf`;
+        tailoredCvDoc.docxUrl = `/api/cv/tailored/${tailoredCvDoc._id}/docx`;
+        await tailoredCvDoc.save();
 
         return res.status(200).json({
             message: "Tailored CV generated successfully",
             tailoredCv: tailoredCvDoc,
-            pdfUrl
+            originalDocumentModel: orig,
+            tailoredDocumentModel: tailoredModel,
+            appliedEdits: validatedPatch,
+            pdfUrl: `/api/cv/tailored/${tailoredCvDoc._id}/pdf`,
+            docxUrl: `/api/cv/tailored/${tailoredCvDoc._id}/docx`,
+            hasDocx: activeCv?.format === "docx",
+            texSource,
+            warnings: validation.warnings
         });
     } catch (error) {
         console.error("Error tailoring CV:", error);
@@ -383,7 +432,7 @@ export const tailorCvHandler = async (req, res) => {
 
 /**
  * GET /api/cv/tailored/:jobId
- * Retrieves existing tailored CV for specific job and user.
+ * Retrieves existing tailored CV for specific job and user with internal authenticated endpoint.
  */
 export const getTailoredCvHandler = async (req, res) => {
     const userId = req.user?.userId;
@@ -394,7 +443,15 @@ export const getTailoredCvHandler = async (req, res) => {
         if (!tailoredCv) {
             return res.status(404).json({ message: "No tailored CV found for this job" });
         }
-        return res.status(200).json({ tailoredCv });
+        tailoredCv.pdfUrl = `/api/cv/tailored/${tailoredCv._id}/pdf`;
+        tailoredCv.docxUrl = `/api/cv/tailored/${tailoredCv._id}/docx`;
+        return res.status(200).json({
+            tailoredCv,
+            originalDocumentModel: tailoredCv.originalDocumentModel,
+            tailoredDocumentModel: tailoredCv.tailoredDocumentModel,
+            appliedEdits: tailoredCv.appliedEdits,
+            hasDocx: tailoredCv.hasDocx
+        });
     } catch (error) {
         console.error("Error fetching tailored CV:", error);
         return res.status(500).json({ message: "Failed to fetch tailored CV" });
@@ -534,4 +591,472 @@ export const parseCvSkillsHandler = async (req, res) => {
         return res.status(500).json({ message: error.message || "Failed to parse skills from CV" });
     }
 };
+
+/**
+ * POST /api/cv/analyze
+ * Comprehensive AI CV audit & scoring.
+ * Saves analysisReport on the CV document and returns the report.
+ */
+export const analyzeCvHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { cvId } = req.body || {};
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let cv = null;
+        if (cvId && mongoose.Types.ObjectId.isValid(cvId)) {
+            cv = await CV.findOne({ _id: cvId, userId });
+        }
+        if (!cv) {
+            cv = await CV.findOne({ userId, isActive: true }).sort({ version: -1 });
+        }
+
+        const textToAnalyze = cv?.extractedText || user.resumeText || "";
+        if (!textToAnalyze.trim()) {
+            return res.status(400).json({
+                message: "No CV text available to analyze. Please upload your CV first."
+            });
+        }
+
+        const report = await analyzeCvDetailed(textToAnalyze, cv?.structuredProfile || {
+            skills: user.skills || [],
+            roles: user.preferences?.roles || ["Software Engineer"]
+        });
+
+        report.analyzedAt = new Date();
+
+        if (cv) {
+            cv.analysisReport = report;
+            await cv.save();
+        }
+
+        return res.status(200).json({
+            message: "CV analysis completed successfully",
+            analysisReport: report,
+            cvId: cv?._id
+        });
+    } catch (error) {
+        console.error("Error analyzing CV:", error);
+        return res.status(500).json({ message: error.message || "Failed to analyze CV" });
+    }
+};
+
+/**
+ * GET /api/cv/analysis/:id/report.pdf
+ * Generates and downloads branded PDF report of the CV audit.
+ */
+export const downloadAnalysisPdfHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let cv = null;
+        if (id && id !== "active" && mongoose.Types.ObjectId.isValid(id)) {
+            cv = await CV.findOne({ _id: id, userId });
+        }
+        if (!cv) {
+            cv = await CV.findOne({ userId, isActive: true }).sort({ version: -1 });
+        }
+
+        if (!cv) {
+            return res.status(404).json({ message: "CV document not found" });
+        }
+
+        let report = cv.analysisReport;
+        if (!report || !report.overallScore) {
+            // Compute on the fly if not yet analyzed
+            report = await analyzeCvDetailed(cv.extractedText || user.resumeText || "", cv.structuredProfile || {});
+            report.analyzedAt = new Date();
+            cv.analysisReport = report;
+            await cv.save();
+        }
+
+        const pdfBuffer = await generateCvAnalysisPdfBuffer(user, cv, report);
+        const safeDate = new Date().toISOString().split("T")[0];
+        const filename = `CV-Analysis-${user.lastname || "Report"}-${safeDate}.pdf`;
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.setHeader("Content-Length", pdfBuffer.length);
+        return res.status(200).send(pdfBuffer);
+    } catch (error) {
+        console.error("Error generating analysis PDF:", error);
+        return res.status(500).json({ message: error.message || "Failed to generate analysis PDF" });
+    }
+};
+
+/**
+ * GET /api/cv/tailored/:id/pdf
+ * Authenticated download/stream of compiled tailored PDF resume.
+ * Requires JWT, verifies document belongs to user.
+ * Generates short-lived signed URL (about 5 minutes) with Cloudinary SDK, or streams the file
+ * with Content-Disposition: attachment (or inline if ?inline=true).
+ */
+export const downloadTailoredPdfHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let tailoredCv = null;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            tailoredCv = await TailoredCV.findOne({ _id: id, userId });
+        }
+        if (!tailoredCv) {
+            tailoredCv = await TailoredCV.findOne({ jobId: String(id), userId });
+        }
+
+        if (!tailoredCv) {
+            return res.status(404).json({ message: "Tailored CV document not found or access denied" });
+        }
+
+        const isInline = req.query.inline === "true";
+        const disposition = isInline ? "inline" : "attachment";
+        const safeCandidate = (user.lastname || "Candidate").replace(/[^a-zA-Z0-9_-]/g, "");
+        const safeCompany = (tailoredCv.jobCompany || "Tailored").replace(/[^a-zA-Z0-9_-]/g, "");
+        const filename = `${safeCandidate}-${safeCompany}-CV.pdf`;
+
+        const assetPublicId = tailoredCv.publicId || tailoredCv.pdfPublicId;
+
+        // If client specifically asks for the short-lived signed URL
+        if (req.query.action === "url" && assetPublicId && !assetPublicId.startsWith("local-") && isCloudinaryConfigured()) {
+            const signedUrl = generateSignedDownloadUrl(assetPublicId, {
+                resourceType: tailoredCv.resource_type || "raw",
+                format: "pdf",
+                expiresInSeconds: 300
+            });
+            return res.status(200).json({ url: signedUrl, expiresInSeconds: 300 });
+        }
+
+        if (req.query.redirect === "true" && assetPublicId && !assetPublicId.startsWith("local-") && isCloudinaryConfigured()) {
+            const signedUrl = generateSignedDownloadUrl(assetPublicId, {
+                resourceType: tailoredCv.resource_type || "raw",
+                format: "pdf",
+                expiresInSeconds: 300
+            });
+            return res.redirect(signedUrl);
+        }
+
+        // Attempt streaming directly from Cloudinary using signed URL
+        if (assetPublicId && !assetPublicId.startsWith("local-") && isCloudinaryConfigured()) {
+            try {
+                const signedUrl = generateSignedDownloadUrl(assetPublicId, {
+                    resourceType: tailoredCv.resource_type || "raw",
+                    format: "pdf",
+                    expiresInSeconds: 300
+                });
+                const cloudRes = await fetch(signedUrl);
+                if (cloudRes.ok) {
+                    const arrayBuffer = await cloudRes.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    res.setHeader("Content-Type", "application/pdf");
+                    res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`);
+                    res.setHeader("Content-Length", buffer.length);
+                    return res.status(200).send(buffer);
+                } else {
+                    console.warn(`Cloudinary download returned HTTP ${cloudRes.status}; falling back to ATS PDF generator.`);
+                }
+            } catch (cloudFetchErr) {
+                console.warn("Could not fetch remote Cloudinary asset buffer; falling back to ATS PDF generator:", cloudFetchErr.message);
+            }
+        }
+
+        // DocumentModel compilation fallback (preserves exact candidate section order and headings)
+        let pdfBuffer;
+        if (tailoredCv.tailoredDocumentModel?.sections) {
+            pdfBuffer = await generateDocumentModelPdfBuffer(tailoredCv.tailoredDocumentModel);
+        } else {
+            const candidateProfile = {
+                firstname: user.firstname,
+                lastname: user.lastname,
+                email: user.email,
+                linkedin: user.linkedin,
+                location: user.preferences?.locations?.[0] || "Sri Lanka"
+            };
+            pdfBuffer = await generateAtsPdfBuffer(candidateProfile, tailoredCv.tailoredData || {});
+        }
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`);
+        res.setHeader("Content-Length", pdfBuffer.length);
+        return res.status(200).send(pdfBuffer);
+    } catch (error) {
+        console.error("Error downloading tailored PDF:", error);
+        return res.status(500).json({ message: error.message || "Failed to download tailored PDF" });
+    }
+};
+
+/**
+ * GET /api/cv/tailored/:id/docx
+ * Authenticated download of native in-place edited DOCX file.
+ */
+export const downloadTailoredDocxHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let tailoredCv = null;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            tailoredCv = await TailoredCV.findOne({ _id: id, userId });
+        }
+        if (!tailoredCv) {
+            tailoredCv = await TailoredCV.findOne({ jobId: String(id), userId });
+        }
+
+        if (!tailoredCv) {
+            return res.status(404).json({ message: "Tailored CV document not found or access denied" });
+        }
+
+        const activeCv = await CV.findOne({ userId, isActive: true });
+        const safeCandidate = (user.lastname || "Candidate").replace(/[^a-zA-Z0-9_-]/g, "");
+        const safeCompany = (tailoredCv.jobCompany || "Tailored").replace(/[^a-zA-Z0-9_-]/g, "");
+        const filename = `${safeCandidate}-${safeCompany}-CV.docx`;
+
+        // If the candidate uploaded a DOCX, fetch original and apply in-place edits
+        if (activeCv && activeCv.publicId && isCloudinaryConfigured()) {
+            try {
+                const signedUrl = generateSignedDownloadUrl(activeCv.publicId, {
+                    resourceType: activeCv.resource_type || "raw",
+                    format: "docx",
+                    expiresInSeconds: 300
+                });
+                const cloudRes = await fetch(signedUrl);
+                if (cloudRes.ok) {
+                    const originalBuffer = Buffer.from(await cloudRes.arrayBuffer());
+                    const edits = tailoredCv.appliedEdits?.bulletEdits || [];
+                    const editedDocxBuffer = applyEditsToDocxBuffer(
+                        originalBuffer,
+                        tailoredCv.originalDocumentModel || {},
+                        edits
+                    );
+
+                    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+                    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+                    res.setHeader("Content-Length", editedDocxBuffer.length);
+                    return res.status(200).send(editedDocxBuffer);
+                }
+            } catch (cloudErr) {
+                console.warn("Could not fetch remote DOCX for in-place edit:", cloudErr.message);
+            }
+        }
+
+        return res.status(404).json({ message: "Native DOCX file is not available for this CV" });
+    } catch (error) {
+        console.error("Error downloading tailored DOCX:", error);
+        return res.status(500).json({ message: error.message || "Failed to download tailored DOCX" });
+    }
+};
+
+/**
+ * POST /api/cv/reparse
+ * Allows user to re-parse their active CV into a fresh DocumentModel,
+ * or save manual corrections to the DocumentModel before tailoring.
+ */
+export const reparseCvHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { updatedDocumentModel } = req.body || {};
+
+    try {
+        const activeCv = await CV.findOne({ userId, isActive: true });
+        if (!activeCv) {
+            return res.status(404).json({ message: "No active CV found to re-parse" });
+        }
+
+        if (updatedDocumentModel && updatedDocumentModel.sections) {
+            activeCv.documentModel = updatedDocumentModel;
+            await activeCv.save();
+            return res.status(200).json({
+                message: "Document model updated successfully",
+                documentModel: activeCv.documentModel
+            });
+        }
+
+        const freshModel = parseCvToDocumentModel(
+            activeCv.extractedText || "",
+            activeCv.originalName || "resume.pdf"
+        );
+        activeCv.documentModel = freshModel;
+        await activeCv.save();
+
+        return res.status(200).json({
+            message: "CV re-parsed into DocumentModel successfully",
+            documentModel: freshModel,
+            completenessCheck: freshModel.completenessCheck
+        });
+    } catch (error) {
+        console.error("Error re-parsing CV:", error);
+        return res.status(500).json({ message: error.message || "Failed to re-parse CV" });
+    }
+};
+
+/**
+ * GET /api/cv/download/:id
+ * Authenticated download/stream of candidate's original uploaded CV.
+ * Requires JWT, verifies document belongs to user.
+ * Generates short-lived signed URL (5 minutes) with Cloudinary SDK, or streams the file
+ * with Content-Disposition: attachment (or inline if ?inline=true).
+ */
+export const downloadOriginalCvHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let cv = null;
+        if (id === "active") {
+            cv = await CV.findOne({ userId, isActive: true });
+        } else if (mongoose.Types.ObjectId.isValid(id)) {
+            cv = await CV.findOne({ _id: id, userId });
+        }
+
+        if (!cv) {
+            cv = await CV.findOne({ userId, isActive: true });
+        }
+
+        if (!cv) {
+            return res.status(404).json({ message: "CV document not found or access denied" });
+        }
+
+        const isInline = req.query.inline === "true";
+        const disposition = isInline ? "inline" : "attachment";
+        const filename = cv.originalName || "Resume.pdf";
+        const ext = path.extname(filename).toLowerCase();
+        const mimeType = ext === ".docx"
+            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            : ext === ".txt"
+                ? "text/plain; charset=utf-8"
+                : "application/pdf";
+
+        // If client specifically asks for the short-lived signed URL
+        if (req.query.action === "url" && cv.publicId && !cv.publicId.startsWith("local-") && isCloudinaryConfigured()) {
+            const signedUrl = generateSignedDownloadUrl(cv.publicId, {
+                resourceType: cv.resource_type || "raw",
+                format: cv.format || "pdf",
+                expiresInSeconds: 300
+            });
+            return res.status(200).json({ url: signedUrl, expiresInSeconds: 300 });
+        }
+
+        if (req.query.redirect === "true" && cv.publicId && !cv.publicId.startsWith("local-") && isCloudinaryConfigured()) {
+            const signedUrl = generateSignedDownloadUrl(cv.publicId, {
+                resourceType: cv.resource_type || "raw",
+                format: cv.format || "pdf",
+                expiresInSeconds: 300
+            });
+            return res.redirect(signedUrl);
+        }
+
+        // Stream from Cloudinary using signed URL
+        if (cv.publicId && !cv.publicId.startsWith("local-") && isCloudinaryConfigured()) {
+            try {
+                const signedUrl = generateSignedDownloadUrl(cv.publicId, {
+                    resourceType: cv.resource_type || "raw",
+                    format: cv.format || "pdf",
+                    expiresInSeconds: 300
+                });
+                const cloudRes = await fetch(signedUrl);
+                if (cloudRes.ok) {
+                    const arrayBuffer = await cloudRes.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    res.setHeader("Content-Type", mimeType);
+                    res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`);
+                    res.setHeader("Content-Length", buffer.length);
+                    return res.status(200).send(buffer);
+                } else {
+                    console.warn(`Cloudinary download returned HTTP ${cloudRes.status} for original CV.`);
+                }
+            } catch (cloudErr) {
+                console.warn("Could not fetch remote Cloudinary CV buffer:", cloudErr.message);
+            }
+        }
+
+        // Fallback to plain text stream if extractedText exists
+        if (cv.extractedText) {
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.setHeader("Content-Disposition", `${disposition}; filename="${filename.replace(/\.[^/.]+$/, "")}.txt"`);
+            return res.status(200).send(cv.extractedText);
+        }
+
+        return res.status(404).json({ message: "CV file binary is not currently available" });
+    } catch (error) {
+        console.error("Error downloading original CV:", error);
+        return res.status(500).json({ message: error.message || "Failed to download original CV" });
+    }
+};
+
+/**
+ * GET /api/cv/tailored/:id/tex
+ * Authenticated download of LaTeX source (.tex).
+ */
+export const downloadTailoredTexHandler = async (req, res) => {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let tailoredCv = null;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            tailoredCv = await TailoredCV.findOne({ _id: id, userId });
+        }
+        if (!tailoredCv) {
+            tailoredCv = await TailoredCV.findOne({ jobId: String(id), userId });
+        }
+
+        if (!tailoredCv) {
+            return res.status(404).json({ message: "Tailored CV document not found" });
+        }
+
+        let texSource = tailoredCv.texSource;
+        if (!texSource) {
+            const candidateProfile = {
+                firstname: user.firstname,
+                lastname: user.lastname,
+                email: user.email,
+                linkedin: user.linkedin,
+                location: user.preferences?.locations?.[0] || "Sri Lanka"
+            };
+            texSource = renderLatexResume(candidateProfile, tailoredCv.tailoredData || {});
+            tailoredCv.texSource = texSource;
+            await tailoredCv.save();
+        }
+
+        const safeCandidate = (user.lastname || "Candidate").replace(/[^a-zA-Z0-9]/g, "");
+        const safeCompany = (tailoredCv.jobCompany || "Tailored").replace(/[^a-zA-Z0-9]/g, "");
+        const filename = `${safeCandidate}-${safeCompany}-CV.tex`;
+
+        res.setHeader("Content-Type", "text/x-tex");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.status(200).send(texSource);
+    } catch (error) {
+        console.error("Error downloading LaTeX source:", error);
+        return res.status(500).json({ message: error.message || "Failed to download LaTeX source" });
+    }
+};
+
 

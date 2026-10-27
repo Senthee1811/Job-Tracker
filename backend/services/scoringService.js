@@ -50,37 +50,60 @@ export const calculateExperienceScore = (candidateYears = 0, jobDescription = ""
 };
 
 /**
- * Calculates preference fit score (0 - 100) based on title, mode, and location.
+ * Calculates preference fit score (0 - 100) based on target roles, locations, work mode, and job types.
  */
 export const calculatePreferenceScore = (userPreferences = {}, job = {}) => {
     let score = 0;
 
-    // Title / role alignment (40 pts)
-    const userRole = (userPreferences.role || "").toLowerCase();
+    // 1. Roles / Title alignment (40 pts)
+    const preferredRoles = Array.isArray(userPreferences.roles) && userPreferences.roles.length > 0
+        ? userPreferences.roles.map(r => r.toLowerCase())
+        : [String(userPreferences.role || "").toLowerCase()].filter(Boolean);
+
     const jobTitle = (job.title || "").toLowerCase();
-    if (!userRole || jobTitle.includes(userRole) || userRole.split(" ").some(w => w.length > 3 && jobTitle.includes(w))) {
-        score += 40;
+    const jobDesc = (job.description || "").toLowerCase();
+
+    if (preferredRoles.length === 0) {
+        score += 35; // neutral baseline
     } else {
-        score += 20;
+        const matchesRole = preferredRoles.some(r =>
+            jobTitle.includes(r) ||
+            r.split(" ").some(w => w.length > 3 && jobTitle.includes(w)) ||
+            jobDesc.includes(r)
+        );
+        score += matchesRole ? 40 : 20;
     }
 
-    // Work mode match (30 pts)
+    // 2. Work mode & Job type match (30 pts)
     const userMode = (userPreferences.mode || "any").toLowerCase();
     const jobMode = (job.mode || "hybrid").toLowerCase();
-    if (userMode === "any" || userMode === jobMode) {
+    const preferredJobTypes = Array.isArray(userPreferences.jobTypes)
+        ? userPreferences.jobTypes.map(t => t.toLowerCase())
+        : [];
+    const jobType = (job.jobType || "").toLowerCase();
+
+    let modeMatches = userMode === "any" || userMode === jobMode;
+    let typeMatches = preferredJobTypes.length === 0 || preferredJobTypes.some(t => jobType.includes(t));
+
+    if (modeMatches && typeMatches) {
         score += 30;
+    } else if (modeMatches || typeMatches) {
+        score += 20;
     } else {
         score += 15;
     }
 
-    // Location match (30 pts)
-    const userLoc = (userPreferences.location || "sri lanka").toLowerCase();
+    // 3. Location match (30 pts)
+    const preferredLocations = Array.isArray(userPreferences.locations) && userPreferences.locations.length > 0
+        ? userPreferences.locations.map(l => l.toLowerCase())
+        : [String(userPreferences.location || "sri lanka").toLowerCase()].filter(Boolean);
+
     const jobLoc = (job.location || "").toLowerCase();
-    if (!jobLoc || jobLoc.includes(userLoc) || userLoc.includes(jobLoc) || jobLoc.includes("sri lanka") || jobLoc.includes("colombo")) {
-        score += 30;
-    } else {
-        score += 10;
-    }
+    const matchesLoc = preferredLocations.length === 0 ||
+        preferredLocations.includes("all sri lanka") ||
+        preferredLocations.some(l => jobLoc.includes(l) || l.includes(jobLoc) || jobLoc.includes("sri lanka") || (l === "remote" && jobMode === "remote"));
+
+    score += matchesLoc ? 30 : 10;
 
     return Math.min(100, score);
 };
@@ -185,10 +208,10 @@ export const rankJobsForCandidate = async (cv, user, jobs = [], topNExplain = 5)
             requiredSkills: job.skills || [],
             candidateYears,
             jobDescription: `${job.title} ${job.description || ""} ${job.requirements || ""}`,
-            userPreferences: {
-                role: user?.preferredRole || candidateSkills[0] || "",
-                location: "Sri Lanka",
-                mode: "hybrid"
+            userPreferences: user?.preferences || {
+                roles: user?.preferredRole ? [user.preferredRole] : [candidateSkills[0] || "Software Engineer"],
+                locations: ["Colombo", "Remote"],
+                jobTypes: ["Full Time"]
             },
             job
         });

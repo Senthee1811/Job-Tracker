@@ -1,4 +1,5 @@
 import { Job } from "../models/Job.js";
+import { User } from "../models/User.js";
 import { executeScrapeCycle } from "../services/schedulerService.js";
 import { getScrapersHealth } from "../services/scrapers/index.js";
 import { FALLBACK_SEED_JOBS } from "./recommendationController.js";
@@ -6,17 +7,35 @@ import { FALLBACK_SEED_JOBS } from "./recommendationController.js";
 /**
  * GET /api/jobs
  * Returns paginated, filtered Sri Lankan IT vacancies from the Job collection.
+ * Defaults to the authenticated user's saved preferences when no explicit filter is passed.
  * Includes "isNewToday" badge indicator.
  */
 export const getVacancies = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 12));
-    const { role, location, source, jobType, q } = req.query;
+    const { role, location, source, jobType, q, showAll } = req.query;
 
     try {
-        const query = {};
+        // Ensure initial seeds exist if Job collection is completely empty
+        const totalInDb = await Job.countDocuments();
+        if (totalInDb === 0) {
+            try {
+                await Job.insertMany(FALLBACK_SEED_JOBS, { ordered: false });
+            } catch (seedErr) {
+                // Ignore duplicate errors
+            }
+        }
 
-        // Keyword / role search
+        const query = {};
+        let appliedPreferences = null;
+
+        const hasExplicitSearch = !!(role || q);
+        const hasExplicitLocation = location && location !== "all";
+        const hasExplicitSource = source && source !== "all";
+        const hasExplicitJobType = jobType && jobType !== "all";
+        const isShowAllRequested = showAll === "true" || showAll === true;
+
+        // Apply explicit keyword / role search if provided
         const searchTerm = role || q;
         if (searchTerm) {
             query.$or = [
@@ -27,29 +46,75 @@ export const getVacancies = async (req, res) => {
             ];
         }
 
-        // Location filter
-        if (location && location !== "all") {
+        // Apply explicit location filter if provided
+        if (hasExplicitLocation) {
             query.location = { $regex: location, $options: "i" };
         }
 
-        // Source filter
-        if (source && source !== "all") {
+        // Apply explicit source filter if provided
+        if (hasExplicitSource) {
             query.source = source.toLowerCase();
         }
 
-        // Job type filter
-        if (jobType && jobType !== "all") {
+        // Apply explicit job type filter if provided
+        if (hasExplicitJobType) {
             query.jobType = { $regex: jobType, $options: "i" };
         }
 
-        let total = await Job.countDocuments(query);
-        if (total === 0 && !searchTerm && !location && !source && !jobType) {
-            try {
-                await Job.insertMany(FALLBACK_SEED_JOBS, { ordered: false });
-                total = await Job.countDocuments(query);
-            } catch (seedErr) {
-                // Ignore duplicate errors
+        // If no explicit filter is passed and showAll is NOT requested, apply saved user preferences
+        if (!hasExplicitSearch && !hasExplicitLocation && !hasExplicitSource && !hasExplicitJobType && !isShowAllRequested && req.user?.userId) {
+            const user = await User.findById(req.user.userId).select("preferences").lean();
+            if (user?.preferences?.roles?.length > 0) {
+                appliedPreferences = user.preferences;
+
+                const roleRegexes = user.preferences.roles.map(r => new RegExp(r, "i"));
+                const roleConditions = [
+                    { title: { $in: roleRegexes } },
+                    { description: { $in: roleRegexes } },
+                    { skills: { $in: roleRegexes } }
+                ];
+
+                const userLocations = user.preferences.locations || [];
+                const hasSpecificLocations = userLocations.length > 0 && !userLocations.some(l => l.toLowerCase().includes("all"));
+
+                if (hasSpecificLocations) {
+                    const locRegexes = userLocations.map(l => new RegExp(l, "i"));
+                    query.$and = [
+                        { $or: roleConditions },
+                        { $or: [{ location: { $in: locRegexes } }, { mode: "remote" }] }
+                    ];
+                } else {
+                    query.$or = roleConditions;
+                }
             }
+        }
+
+        let total = await Job.countDocuments(query);
+        // Fallback: if preference filter yields 0 vacancies, gracefully broaden to all
+        if (total === 0 && appliedPreferences) {
+            total = await Job.countDocuments({});
+            appliedPreferences = { ...appliedPreferences, broadened: true };
+            const rawJobs = await Job.find({})
+                .sort({ postedAt: -1, scrapedAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean();
+
+            const startOfToday = new Date();
+            startOfToday.setUTCHours(0, 0, 0, 0);
+            const jobs = rawJobs.map((j) => ({
+                ...j,
+                id: j._id.toString(),
+                isNewToday: !!(j.postedAt && new Date(j.postedAt) >= startOfToday)
+            }));
+
+            return res.status(200).json({
+                jobs,
+                total,
+                page,
+                totalPages: Math.ceil(total / limit),
+                appliedPreferences
+            });
         }
 
         const rawJobs = await Job.find(query)
@@ -76,7 +141,8 @@ export const getVacancies = async (req, res) => {
             jobs,
             total,
             page,
-            totalPages: Math.ceil(total / limit)
+            totalPages: Math.ceil(total / limit),
+            appliedPreferences
         });
     } catch (error) {
         console.error("Error fetching vacancies:", error);

@@ -21,17 +21,54 @@ const tailoredCvSchema = new mongoose.Schema({
         default: ""
     },
     tailoredData: {
-        summary: { type: String, default: "" },
-        highlightedSkills: [{ type: String }],
-        experience: [{ type: mongoose.Schema.Types.Mixed }],
-        education: [{ type: mongoose.Schema.Types.Mixed }],
-        projects: [{ type: mongoose.Schema.Types.Mixed }]
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    originalDocumentModel: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
+    },
+    tailoredDocumentModel: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
+    },
+    appliedEdits: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    docxUrl: {
+        type: String,
+        default: ""
+    },
+    docxPublicId: {
+        type: String,
+        default: ""
+    },
+    hasDocx: {
+        type: Boolean,
+        default: false
     },
     pdfUrl: {
         type: String,
         default: ""
     },
     pdfPublicId: {
+        type: String,
+        default: ""
+    },
+    publicId: {
+        type: String,
+        default: ""
+    },
+    resource_type: {
+        type: String,
+        default: "raw"
+    },
+    type: {
+        type: String,
+        default: "authenticated"
+    },
+    texSource: {
         type: String,
         default: ""
     }

@@ -13,6 +13,7 @@ import {
   IoFlashOutline,
   IoSparklesOutline
 } from 'react-icons/io5';
+import AiCvAuditCard from './AiCvAuditCard';
 
 const Profile = () => {
   const { user, updateProfile, uploadCV, refreshProfile } = useAuth();
@@ -287,21 +288,27 @@ const Profile = () => {
                 <IoFlashOutline className={`w-3.5 h-3.5 ${parsingSkills ? 'animate-spin' : ''}`} />
                 <span>{parsingSkills ? 'Extracting Skills...' : 'Parse Skills from CV'}</span>
               </button>
-              <a
-                href={user.cvPath}
-                target="_blank"
-                rel="noreferrer"
-                className='font-bold text-neutral-700 hover:text-black underline flex items-center gap-1 text-[11px] px-2 py-1'
+              <button
+                type="button"
+                onClick={() => api.downloadOriginalCv("active", user.cvName || 'Resume.pdf')}
+                className='font-bold text-neutral-700 hover:text-black underline flex items-center gap-1 text-[11px] px-2 py-1 cursor-pointer bg-transparent border-0'
               >
                 <IoDownloadOutline className='w-3.5 h-3.5' />
                 <span>Download</span>
-              </a>
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* 2. CV Version History Table */}
+      {/* 2. AI CV Audit & ATS Readiness Card */}
+      <AiCvAuditCard 
+        activeCv={cvHistory.find(c => c.isActive) || cvHistory[0] || (user.cvPath ? { originalName: user.cvName } : null)}
+        onAddSkill={handleAddDetectedSkill}
+        userSkills={skills}
+      />
+
+      {/* 3. CV Version History Table */}
       {cvHistory.length > 0 && (
         <div className='bg-white border-2 border-neutral-900 rounded-2xl p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4'>
           <div className='flex items-center gap-2 border-b-2 border-neutral-900 pb-3'>
@@ -346,15 +353,14 @@ const Profile = () => {
                     </td>
                     <td className='py-2.5 px-3 text-right space-x-2'>
                       {cvItem.secureUrl && (
-                        <a
-                          href={cvItem.secureUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className='inline-block p-1 text-neutral-700 hover:text-black'
+                        <button
+                          type="button"
+                          onClick={() => api.downloadOriginalCv(cvItem._id, cvItem.originalName)}
+                          className='inline-block p-1 text-neutral-700 hover:text-black cursor-pointer bg-transparent border-0'
                           title="Download"
                         >
                           <IoDownloadOutline className='w-4 h-4' />
-                        </a>
+                        </button>
                       )}
                       <button
                         onClick={() => handleDeleteCvVersion(cvItem._id)}

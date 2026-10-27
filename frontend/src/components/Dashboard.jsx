@@ -49,6 +49,8 @@ const Dashboard = ({ setActiveTab }) => {
   const [selectedSource, setSelectedSource] = useState('all');
   const [searchRole, setSearchRole] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('all');
+  const [showAllJobs, setShowAllJobs] = useState(false);
+  const [appliedPreferences, setAppliedPreferences] = useState(null);
 
   // Reminders state
   const [reminders, setReminders] = useState([]);
@@ -150,10 +152,12 @@ const Dashboard = ({ setActiveTab }) => {
         limit: 6,
         source: selectedSource,
         role: searchRole,
-        location: selectedLocation
+        location: selectedLocation,
+        showAll: showAllJobs
       });
       setVacancies(data.jobs || []);
       setVacancyTotalPages(data.totalPages || 1);
+      setAppliedPreferences(data.appliedPreferences || null);
     } catch (err) {
       console.error('Error fetching vacancies:', err);
     } finally {
@@ -232,7 +236,7 @@ const Dashboard = ({ setActiveTab }) => {
       fetchVacancies();
     }, 250);
     return () => clearTimeout(timer);
-  }, [vacancyPage, selectedSource, searchRole, selectedLocation]);
+  }, [vacancyPage, selectedSource, searchRole, selectedLocation, showAllJobs]);
 
   // Aggregate stats calculations
   const total = applications.length;
@@ -583,6 +587,66 @@ const Dashboard = ({ setActiveTab }) => {
             >
               <IoSyncOutline className="w-3.5 h-3.5" />
               <span>Refresh Boards</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Preference Filter Status Bar */}
+        <div className="p-3.5 bg-lime-50/80 border-2 border-neutral-900 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-extrabold text-neutral-900 flex items-center gap-1.5">
+              <IoFilterOutline className="w-4 h-4 text-lime-700" />
+              {showAllJobs ? 'Showing:' : 'Showing jobs for:'}
+            </span>
+            {showAllJobs ? (
+              <span className="px-2.5 py-0.5 bg-neutral-900 text-white rounded-lg text-[11px] font-bold">
+                All Sri Lankan IT Jobs
+              </span>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(appliedPreferences?.roles || user?.preferences?.roles || ['Software Engineer']).map((r, i) => (
+                  <span
+                    key={i}
+                    className="px-2 py-0.5 bg-[#a3e635] text-neutral-950 rounded-lg text-[11px] font-bold border border-neutral-900"
+                  >
+                    {r}
+                  </span>
+                ))}
+                <span className="text-neutral-400 font-bold">•</span>
+                {(appliedPreferences?.locations || user?.preferences?.locations || ['Colombo', 'Remote']).map((l, i) => (
+                  <span
+                    key={i}
+                    className="px-2 py-0.5 bg-white text-neutral-800 rounded-lg text-[11px] font-bold border border-neutral-300"
+                  >
+                    {l}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAllJobs(!showAllJobs);
+                setVacancyPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border-2 border-neutral-900 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] ${
+                showAllJobs
+                  ? 'bg-[#a3e635] text-neutral-950 hover:bg-lime-400'
+                  : 'bg-white text-neutral-900 hover:bg-neutral-50'
+              }`}
+            >
+              {showAllJobs ? 'Filter by My Preferences' : 'Show All IT Jobs'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className="text-xs font-bold text-neutral-700 hover:text-black underline cursor-pointer"
+            >
+              Edit Preferences
             </button>
           </div>
         </div>

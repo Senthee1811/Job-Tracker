@@ -45,6 +45,44 @@ const userSchema = new mongoose.Schema({
     linkedin: {
         type: String,
         default: ""
+    },
+    preferences: {
+        roles: {
+            type: [{ type: String }],
+            default: ["Software Engineer"]
+        },
+        locations: {
+            type: [{ type: String }],
+            default: ["Colombo", "Remote"]
+        },
+        jobTypes: {
+            type: [{ type: String }],
+            default: ["Full Time"]
+        },
+        experienceLevel: {
+            type: String,
+            default: "Mid-Level (2-5 yrs)"
+        },
+        keywords: {
+            type: [{ type: String }],
+            default: []
+        },
+        onboardingCompleted: {
+            type: Boolean,
+            default: false
+        }
+    },
+    resetPasswordTokenHash: {
+        type: String,
+        default: null
+    },
+    resetPasswordExpires: {
+        type: Date,
+        default: null
+    },
+    tokenVersion: {
+        type: Number,
+        default: 0
     }
 },{ timestamps: true }); 
 

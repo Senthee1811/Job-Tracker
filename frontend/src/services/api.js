@@ -1,4 +1,5 @@
-const BASE_URL = "http://localhost:8000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const BASE_URL = API_URL.endsWith("/api") ? API_URL : `${API_URL.replace(/\/$/, "")}/api`;
 
 const getHeaders = () => {
   const token = localStorage.getItem("token");
@@ -35,6 +36,59 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(credentials),
+    });
+    return handleResponse(res);
+  },
+
+  forgotPassword: async (email) => {
+    const res = await fetch(`${BASE_URL}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    return handleResponse(res);
+  },
+
+  resetPassword: async ({ token, newPassword }) => {
+    const res = await fetch(`${BASE_URL}/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, newPassword }),
+    });
+    return handleResponse(res);
+  },
+
+  changePassword: async ({ currentPassword, newPassword }) => {
+    const res = await fetch(`${BASE_URL}/users/change-password`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    return handleResponse(res);
+  },
+
+  deleteAccount: async ({ password, confirmText }) => {
+    const res = await fetch(`${BASE_URL}/users/me`, {
+      method: "DELETE",
+      headers: getHeaders(),
+      body: JSON.stringify({ password, confirmText }),
+    });
+    return handleResponse(res);
+  },
+
+  getPreferences: async () => {
+    const res = await fetch(`${BASE_URL}/users/preferences`, {
+      method: "GET",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  updatePreferences: async (preferences) => {
+    const res = await fetch(`${BASE_URL}/users/preferences`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(preferences),
     });
     return handleResponse(res);
   },
@@ -107,11 +161,29 @@ export const api = {
     return handleResponse(res);
   },
 
-  tailorCv: async (jobId, customData = null, jobMeta = {}) => {
+  reparseCv: async (updatedDocumentModel = null) => {
+    const res = await fetch(`${BASE_URL}/cv/reparse`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ updatedDocumentModel }),
+    });
+    return handleResponse(res);
+  },
+
+  tailorCv: async (jobId, customEdits = null, options = {}, jobMeta = {}) => {
+    const isLegacyMeta = options && (options.jobTitle || options.jobCompany || options.jobRequirements || options.jobSkills);
+    const meta = isLegacyMeta ? options : jobMeta;
+    const opts = isLegacyMeta ? {} : options;
+
     const res = await fetch(`${BASE_URL}/cv/tailor`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ jobId, customData, ...jobMeta }),
+      body: JSON.stringify({
+        jobId,
+        customEdits: customEdits || opts.customEdits || null,
+        onlyReorderSkills: opts.onlyReorderSkills === true,
+        ...meta,
+      }),
     });
     return handleResponse(res);
   },
@@ -124,6 +196,7 @@ export const api = {
     return handleResponse(res);
   },
 
+
   applyAssisted: async (data) => {
     const res = await fetch(`${BASE_URL}/cv/apply-assisted`, {
       method: "POST",
@@ -131,6 +204,148 @@ export const api = {
       body: JSON.stringify(data),
     });
     return handleResponse(res);
+  },
+
+  analyzeCv: async (cvId = null) => {
+    const res = await fetch(`${BASE_URL}/cv/analyze`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ cvId }),
+    });
+    return handleResponse(res);
+  },
+
+  downloadCvAnalysisPdf: async (cvId = "active") => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/analysis/${cvId}/report.pdf`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to download analysis report");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `CV-Analysis-${new Date().toISOString().split("T")[0]}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  getTailoredCvPdfBlob: async (id) => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/tailored/${id}/pdf?inline=true`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to load PDF preview");
+    }
+    const blob = await res.blob();
+    return window.URL.createObjectURL(blob);
+  },
+
+  downloadTailoredCvPdf: async (id, customFilename = null) => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/tailored/${id}/pdf`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to download tailored PDF");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = customFilename || `Tailored-Resume-${new Date().toISOString().split("T")[0]}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  downloadTailoredCvDocx: async (id, customFilename = null) => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/tailored/${id}/docx`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to download tailored DOCX");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = customFilename || `Tailored-Resume-${new Date().toISOString().split("T")[0]}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  downloadTailoredCvTex: async (id, customFilename = null) => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/tailored/${id}/tex`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to download LaTeX source");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = customFilename || `Tailored-Resume-${new Date().toISOString().split("T")[0]}.tex`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  downloadOriginalCv: async (id = "active", customFilename = null) => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/download/${id}`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to download CV file");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = customFilename || "Resume.pdf";
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  getOriginalCvPdfBlob: async (id = "active") => {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${BASE_URL}/cv/download/${id}?inline=true`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to load CV preview");
+    }
+    const blob = await res.blob();
+    return window.URL.createObjectURL(blob);
   },
 
   // AI Recommendations

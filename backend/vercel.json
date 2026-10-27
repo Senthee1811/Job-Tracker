@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.js"
+    }
+  ],
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/scrape?source=topjobs",
+      "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?source=itpro",
+      "schedule": "35 0 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?source=xpressjobs",
+      "schedule": "40 0 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?source=ikman",
+      "schedule": "45 0 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?source=rooster",
+      "schedule": "50 0 * * *"
+    },
+    {
+      "path": "/api/cron/scrape?source=recruiter",
+      "schedule": "55 0 * * *"
+    }
+  ]
+}

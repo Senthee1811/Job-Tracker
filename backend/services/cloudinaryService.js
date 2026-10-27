@@ -32,13 +32,21 @@ export const isCloudinaryConfigured = () => {
 
 /**
  * Uploads a file buffer to Cloudinary using upload_stream.
+ * PDFs and documents are uploaded with resource_type: "raw" and type: "authenticated"
+ * to protect candidate privacy and prevent 401 ACL failure errors.
  *
  * @param {Buffer} buffer - File buffer
  * @param {string} originalName - Original filename
  * @param {string} [folder="job-tracker/cvs"] - Target folder
- * @returns {Promise<{ publicId: string, secureUrl: string, format: string, bytes: number }>}
+ * @param {object} [options={}] - Custom upload options override
+ * @returns {Promise<{ publicId: string, secureUrl: string, format: string, bytes: number, resourceType: string, type: string }>}
  */
-export const uploadBufferToCloudinary = async (buffer, originalName, folder = "job-tracker/cvs") => {
+export const uploadBufferToCloudinary = async (
+    buffer,
+    originalName,
+    folder = "job-tracker/cvs",
+    options = {}
+) => {
     initCloudinary();
 
     if (!isCloudinaryConfigured()) {
@@ -51,8 +59,15 @@ export const uploadBufferToCloudinary = async (buffer, originalName, folder = "j
     const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, "_");
     const publicId = `${cleanBaseName}-${Date.now()}`;
 
-    // PDFs and DOCX are best handled as 'raw' or 'auto'
-    const resourceType = ext === "pdf" ? "auto" : "raw";
+    // PDFs and DOCX are uploaded with resource_type: "raw" and type: "authenticated"
+    const resourceType = options.resource_type || "raw";
+    const uploadType = options.type || "authenticated";
+    const accessMode = options.access_mode || "authenticated";
+
+    // Requirement 1: Log resource_type, type and access_mode used
+    console.log(
+        `[Cloudinary Upload Options] file: ${originalName}, resource_type: ${resourceType}, type: ${uploadType}, access_mode: ${accessMode}`
+    );
 
     return new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
@@ -60,6 +75,8 @@ export const uploadBufferToCloudinary = async (buffer, originalName, folder = "j
                 folder,
                 public_id: publicId,
                 resource_type: resourceType,
+                type: uploadType,
+                access_mode: accessMode,
                 format: ext
             },
             (error, result) => {
@@ -68,11 +85,17 @@ export const uploadBufferToCloudinary = async (buffer, originalName, folder = "j
                     return reject(new Error(`Cloudinary upload failed: ${error.message}`));
                 }
 
+                console.log(
+                    `[Cloudinary Upload Success] public_id: ${result.public_id}, resource_type: ${result.resource_type}, type: ${result.type}`
+                );
+
                 resolve({
                     publicId: result.public_id,
                     secureUrl: result.secure_url,
                     format: result.format || ext,
-                    bytes: result.bytes || buffer.length
+                    bytes: result.bytes || buffer.length,
+                    resourceType: result.resource_type || resourceType,
+                    type: result.type || uploadType
                 });
             }
         );
@@ -86,13 +109,36 @@ export const uploadBufferToCloudinary = async (buffer, originalName, folder = "j
 };
 
 /**
+ * Generates a short-lived (default 5 minutes) signed download URL for an authenticated asset.
+ *
+ * @param {string} publicId - Cloudinary asset public ID
+ * @param {object} [options={}] - Options { resourceType, format, expiresInSeconds }
+ * @returns {string} Signed short-lived URL
+ */
+export const generateSignedDownloadUrl = (
+    publicId,
+    { resourceType = "raw", format = "pdf", expiresInSeconds = 300 } = {}
+) => {
+    initCloudinary();
+
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds;
+
+    return cloudinary.utils.private_download_url(publicId, format, {
+        resource_type: resourceType,
+        type: "authenticated",
+        expires_at: expiresAt
+    });
+};
+
+/**
  * Deletes an asset from Cloudinary by public ID.
  *
  * @param {string} publicId - Cloudinary asset public ID
  * @param {string} [resourceType="raw"] - Cloudinary resource type ('raw', 'image', 'video')
+ * @param {string} [type="authenticated"] - Cloudinary delivery type ('authenticated', 'upload')
  * @returns {Promise<any>}
  */
-export const deleteCloudinaryAsset = async (publicId, resourceType = "raw") => {
+export const deleteCloudinaryAsset = async (publicId, resourceType = "raw", type = "authenticated") => {
     initCloudinary();
 
     if (!isCloudinaryConfigured()) {
@@ -101,10 +147,12 @@ export const deleteCloudinaryAsset = async (publicId, resourceType = "raw") => {
     }
 
     try {
-        const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
-        // Also try with auto/image if raw didn't find it
-        if (result.result === "not found" && resourceType === "raw") {
-            return await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+        let result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, type });
+        if (result.result === "not found") {
+            result = await cloudinary.uploader.destroy(publicId, { resource_type: "image", type });
+        }
+        if (result.result === "not found") {
+            result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, type: "upload" });
         }
         return result;
     } catch (error) {
