@@ -9,6 +9,7 @@ import BackgroundGradient from './components/BackgroundGradient';
 import AuthModal from './components/AuthModal';
 import AutoApplyModal from './components/AutoApplyModal';
 import TailorCvModal from './components/TailorCvModal';
+import OnboardingModal from './components/OnboardingModal';
 import { useAuth } from './contexts/AuthContext';
 
 // Route-level code splitting with React.lazy
@@ -18,6 +19,9 @@ const AutomationPanel = lazy(() => import('./components/AutomationPanel'));
 const ExploreJobs = lazy(() => import('./components/ExploreJobs'));
 const Bookmarks = lazy(() => import('./components/Bookmarks'));
 const Profile = lazy(() => import('./components/Profile'));
+const Settings = lazy(() => import('./components/Settings'));
+const ForgotPassword = lazy(() => import('./components/ForgotPassword'));
+const ResetPassword = lazy(() => import('./components/ResetPassword'));
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
@@ -210,6 +214,17 @@ function App() {
               </ProtectedRoute>
             } />
 
+            {/* Account Settings */}
+            <Route path="/settings" element={
+              <ProtectedRoute>
+                <Settings />
+              </ProtectedRoute>
+            } />
+
+            {/* Public Auth Recovery Routes */}
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+
             {/* Default fallback redirects home */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -239,6 +254,11 @@ function App() {
           setTailorModalOpen(false);
           handleOpenAutoApply(job, tailoredCvId);
         }}
+      />
+
+      <OnboardingModal
+        isOpen={Boolean(user && !user.preferences?.onboardingCompleted)}
+        onComplete={() => {}}
       />
     </div>
   );

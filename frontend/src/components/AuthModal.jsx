@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { IoCloseOutline, IoLogoGoogle, IoLogoLinkedin } from 'react-icons/io5';
 import { useNavigate } from 'react-router-dom';
+import PasswordInput from './PasswordInput';
 
 const AuthModal = ({ isOpen, onClose }) => {
   const { login, register } = useAuth();
@@ -170,17 +171,29 @@ const AuthModal = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          <div className='flex flex-col gap-1.5'>
-            <label className='text-xs font-bold text-neutral-700 uppercase'>Password</label>
-            <input
-              type="password"
-              required
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className='border border-neutral-300 focus:border-black rounded-lg px-3 py-2 text-sm outline-none transition-colors'
-            />
-          </div>
+          <PasswordInput
+            label="Password"
+            required
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={8}
+          />
+
+          {isLogin && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  navigate('/forgot-password');
+                }}
+                className="text-xs font-bold text-neutral-600 hover:text-neutral-900 hover:underline cursor-pointer"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
 
           <button
             type="submit"
